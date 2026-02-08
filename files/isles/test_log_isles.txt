@@ -1,0 +1,6 @@
+
+2026-02-08 16:10:21.152196
+Dataset Size:
+Test: 1569
+
+Test Loss: 0.2560 | Test Jaccard: 0.7961 | Test Dice: 0.8303 | Test Recall: 0.8401 | Test Precision: 0.9427
