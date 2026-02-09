@@ -1,17 +1,16 @@
 import os
 import random
+import datetime
 import time
 import numpy as np
+import cv2 as cv
+from sklearn.utils import shuffle
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.hub import load_state_dict_from_url
-import cv2 as cv
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score
-import time
-import datetime
-from sklearn.utils import shuffle
 import albumentations as A
 
 # Set a fixed seed value
@@ -26,11 +25,11 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 30,
+    'early_stopping_patience': 35,
 }
 
 # Constants for dataset name, path, and checkpoint path
-DATASET_NAME = 'bmshare'
+DATASET_NAME = 'isles'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
 os.makedirs(f'/home/dragos/disertation/files/{DATASET_NAME}', exist_ok=True)
 CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/best_model_{DATASET_NAME}.pth'
@@ -69,6 +68,10 @@ def load_data(param_dataset_path):
 
     return (train_images_path, train_masks_path), (validation_images_path, validation_masks_path)
 
+def shuffling(param_images_path, param_masks_path):
+    param_images_path, param_masks_path = shuffle(param_images_path, param_masks_path, random_state=SEED)
+    return param_images_path, param_masks_path
+
 # Segmentation Dataset class for loading images and masks
 class SegmentationDataset(Dataset):
     def __init__(self, param_images_path, param_masks_path, param_size, param_transform=None):
@@ -94,10 +97,12 @@ class SegmentationDataset(Dataset):
         image = cv.resize(image, self.size)
         image = np.transpose(image, (2, 0, 1))
         image = image / 255.0
+        image = torch.from_numpy(image).float()
 
         mask = cv.resize(mask, self.size)
         mask = np.expand_dims(mask, axis=0)
         mask = mask / 255.0
+        mask = torch.from_numpy(mask).float()
 
         return image, mask
 
@@ -117,12 +122,13 @@ def conv1x1(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
+                 base_width=64, dilation=1, norm_layer=None):
         super(BasicBlock, self).__init__()
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
-
+        
         if groups != 1 or base_width != 64:
             raise ValueError('BasicBlock only supports groups=1 and base_width=64')
         if dilation > 1:
@@ -155,12 +161,12 @@ class BasicBlock(nn.Module):
 
         return out
 
-class BottleneckResNet(nn.Module):
+class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_layer=None):
-        super(BottleneckResNet, self).__init__()
+        super(Bottleneck, self).__init__()
         
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -200,7 +206,6 @@ class BottleneckResNet(nn.Module):
         return out
 
 class ResNet(nn.Module):
-
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
@@ -209,10 +214,9 @@ class ResNet(nn.Module):
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
+
         self.inplanes = 64
         self.dilation = 1
-        self.groups = groups
-        self.base_width = width_per_group
         
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
@@ -221,6 +225,9 @@ class ResNet(nn.Module):
         if len(replace_stride_with_dilation) != 3:
             raise ValueError("replace_stride_with_dilation should be None "
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
+        
+        self.groups = groups
+        self.base_width = width_per_group
         
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
@@ -249,7 +256,7 @@ class ResNet(nn.Module):
         # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
         if zero_init_residual:
             for m in self.modules():
-                if isinstance(m, BottleneckResNet):
+                if isinstance(m, Bottleneck):
                     nn.init.constant_(m.bn3.weight, 0)
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
@@ -258,9 +265,11 @@ class ResNet(nn.Module):
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
+        
         if dilate:
             self.dilation *= stride
             stride = 1
+        
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride),
@@ -307,11 +316,13 @@ def resnet50(pretrained=True, progress=True, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _resnet('resnet50', BottleneckResNet, [3, 4, 6, 3], pretrained, progress, **kwargs)
+    return _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained, progress,
+                   **kwargs)
+
 
 # TResUnet model
 def save_feats_mean(x):
-    b, c, h, w = x.shape
+    _, _, h, _ = x.shape
     if h == 256:
         with torch.no_grad():
             x = x.detach().cpu().numpy()
@@ -359,7 +370,7 @@ class EncoderBlock(nn.Module):
         p = self.pool(x)
         return x, p
 
-class Bottleneck(nn.Module):
+class BottleneckTResUnet(nn.Module):
     def __init__(self, in_c, out_c, dim, num_layers=2):
         super().__init__()
 
@@ -381,9 +392,9 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         b, c, h, w = x.shape
-        x = x.reshape((b, h*w, c))
+        x = x.flatten(2).transpose(1, 2)
         x = self.tblock(x)
-        x = x.reshape((b, c, h, w))
+        x = x.transpose(1, 2).reshape(b, c, h, w)
         x = self.conv2(x)
         return x
 
@@ -416,7 +427,7 @@ class DilatedConv(nn.Module):
         )
 
         self.c5 = nn.Sequential(
-            nn.Conv2d(out_c* 4, out_c, kernel_size=1, padding=0),
+            nn.Conv2d(out_c*4, out_c, kernel_size=1, padding=0),
             nn.BatchNorm2d(out_c),
             nn.ReLU()
         )
@@ -426,7 +437,7 @@ class DilatedConv(nn.Module):
         x2 = self.c2(inputs)
         x3 = self.c3(inputs)
         x4 = self.c4(inputs)
-        x = torch.cat([x1, x2, x3, x4], axis=1)
+        x = torch.cat([x1, x2, x3, x4], dim=1)
         x = self.c5(x)
         return x
 
@@ -440,7 +451,7 @@ class DecoderBlock(nn.Module):
 
     def forward(self, inputs, skip):
         x = self.up(inputs)
-        x = torch.cat([x, skip], axis=1)
+        x = torch.cat([x, skip], dim=1)
         x = self.r1(x)
         x = self.r2(x)
         return x
@@ -449,18 +460,18 @@ class TResUnet(nn.Module):
     def __init__(self):
         super().__init__()
 
-        """ ResNet50 """
+        ''' ResNet50 '''
         backbone = resnet50()
         self.layer0 = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu)
         self.layer1 = nn.Sequential(backbone.maxpool, backbone.layer1)
         self.layer2 = backbone.layer2
         self.layer3 = backbone.layer3
 
-        """ Bridge blocks """
-        self.b1 = Bottleneck(1024, 256, 256, num_layers=2)
+        ''' Bridge blocks '''
+        self.b1 = BottleneckTResUnet(1024, 256, 256, num_layers=2)
         self.b2 = DilatedConv(1024, 256)
 
-        """ Decoder """
+        ''' Decoder '''
         self.d1 = DecoderBlock([512, 512], 256)
         self.d2 = DecoderBlock([256, 256], 128)
         self.d3 = DecoderBlock([128, 64], 64)
@@ -477,8 +488,7 @@ class TResUnet(nn.Module):
 
         b1 = self.b1(s4)
         b2 = self.b2(s4)
-        b3 = torch.cat([b1, b2], axis=1)
-        # print(b3.shape)
+        b3 = torch.cat([b1, b2], dim=1)
 
         d1 = self.d1(b3, s3)
         d2 = self.d2(d1, s2)
@@ -493,9 +503,9 @@ class TResUnet(nn.Module):
         else:
             return y
 
-class DiceLoss(nn.Module):
+class DiceBCELoss(nn.Module):
     def __init__(self, weight=None, size_average=True):
-        super(DiceLoss, self).__init__()
+        super(DiceBCELoss, self).__init__()
 
     def forward(self, inputs, targets, smooth=1):
         inputs = torch.sigmoid(inputs)
@@ -504,9 +514,9 @@ class DiceLoss(nn.Module):
         targets = targets.view(-1)
 
         intersection = (inputs * targets).sum()
-        dice = (2.*intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
-
-        return 1 - dice
+        dice_loss = 1 - (2.*intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
+        bce_loss = F.binary_cross_entropy(inputs, targets, reduction='mean')
+        return bce_loss + dice_loss
 
 def precision(y_true, y_pred):
     intersection = (y_true * y_pred).sum()
@@ -519,7 +529,7 @@ def recall(y_true, y_pred):
 def F2(y_true, y_pred, beta=2):
     p = precision(y_true, y_pred)
     r = recall(y_true, y_pred)
-    return (1 + beta**2.) *(p*r) / float(beta**2 * p + r + 1e-15)
+    return (1 + beta**2.) * (p*r) / float(beta**2 * p + r + 1e-15)
 
 def dice_score(y_true, y_pred):
     return (2 * (y_true * y_pred).sum() + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
@@ -541,15 +551,16 @@ def calculate_metrics(y_true, y_pred):
     y_true = y_true.reshape(-1)
     y_true = y_true.astype(np.uint8)
 
-    # Score
+    # Compute the scores for each metric
     score_jaccard = jac_score(y_true, y_pred)
-    score_f1 = dice_score(y_true, y_pred)
+    score_dice = dice_score(y_true, y_pred)
     score_recall = recall(y_true, y_pred)
     score_precision = precision(y_true, y_pred)
     #score_fbeta = F2(y_true, y_pred)
     #score_acc = accuracy_score(y_true, y_pred)
 
-    return [score_jaccard, score_f1, score_recall, score_precision]#, score_acc, score_fbeta]
+    return [score_jaccard, score_dice, score_recall, score_precision]#, score_acc, score_fbeta]
+
 
 def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_device):
     param_model.train()
@@ -652,6 +663,7 @@ if __name__ == '__main__':
 
     # Load the images and masks file names for training and validation
     (train_images_paths, train_masks_paths), (validation_images_paths, validation_masks_paths) = load_data(DATASET_PATH)
+    train_images_paths, train_masks_paths = shuffling(train_images_paths, train_masks_paths)
     dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
     print_and_save(LOG_PATH, dataset_log_text)
 
@@ -668,16 +680,16 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'])
     
     # Create dataloaders
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, pin_memory=True, num_workers=2)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, pin_memory=True, num_workers=2)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True)
 
     # Create model, optimizer, scheduler, and criterion
     model = TResUnet().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
-    criterion = DiceLoss()
+    criterion = DiceBCELoss()
 
-    best_validation_dice = -float('inf')
+    best_validation_metric = 0.0
     num_epochs_no_improvement = 0
 
     for epoch in range(HYPERPARAMETERS['num_epochs']):
@@ -687,22 +699,22 @@ if __name__ == '__main__':
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 
-        if validation_metrics[1] > best_validation_dice:
-            data_str = f'Valid F1 improved from {best_validation_dice:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
+        if validation_metrics[1] > best_validation_metric:
+            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
             print_and_save(LOG_PATH, data_str)
 
-            best_validation_dice = validation_metrics[1]
+            best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-        elif validation_metrics[1] < best_validation_dice:
+        elif validation_metrics[1] < best_validation_metric:
             num_epochs_no_improvement += 1
 
         end_time = time.time()
         epoch_duration_min = int((end_time - start_time) / 60)
         epoch_duration_sec = int((end_time - start_time) - (epoch_duration_min * 60))
         epoch_log_text = f'Epoch {epoch+1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
-        epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice: {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
-        epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice: {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
+        epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
+        epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
         print_and_save(LOG_PATH, epoch_log_text)
 
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
