@@ -26,7 +26,8 @@ HYPERPARAMETERS = {
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 35,
-    'teacher_weighting_mode': 0 # 0 for one hot encoding, 1 for uniform weights
+    'teacher_weighting_mode': 0, # 0 for one hot encoding, 1 for uniform weights
+    'batch_ratios': {0: 2, 1: 2, 2: 4} # for balanced batch sampler, the number of samples from each dataset in a batch
 }
 
 # Constant with dataset names
@@ -101,11 +102,65 @@ def load_teacher_models(param_teacher_models_checkpoints):
         teacher_models[DATASETS_TO_IDS[dataset_name]] = teacher_model
     return teacher_models
 
-def determine_teacher_weights(param_dataset_ids, param_mode=0, param_num_teachers=len(DATASET_NAMES)):
+# Determine the weights for each teacher based on the specified mode and the dataset ids of the samples in the batch
+def determine_teachers_weights(param_dataset_ids, param_mode=0, param_num_teachers=len(DATASET_NAMES)):
     if param_mode == 0: # one hot encoding = > 1 for the teacher corresponding to the dataset and 0 for the others
-        return F.one_hot(param_dataset_ids, num_classes=param_num_teachers).float()
+        return F.one_hot(param_dataset_ids, num_classes=param_num_teachers).float().to(DEVICE)
     elif param_mode == 1: # uniform weights = > 1/num_teachers for all teachers
         return torch.full((param_dataset_ids.shape[0], param_num_teachers), 1.0 / param_num_teachers, device=DEVICE, dtype=torch.float32)
+
+class BalancedBatchSampler(Sampler):
+    def __init__(self, param_dataset_ids, param_batch_ratios):
+        super().__init__(None)
+
+        self.dataset_ids = np.array(param_dataset_ids, dtype=np.int64)
+        self.batch_ratios = param_batch_ratios
+        self.epoch = 0        
+
+        self.ids_indices = {dataset_id: np.where(self.dataset_ids == dataset_id)[0] for dataset_id in self.batch_ratios.keys()}
+
+        batches_per_dataset = []
+        for dataset_id in self.batch_ratios.keys():
+            num_samples = len(self.ids_indices[dataset_id])
+            num_batches = int(np.ceil(num_samples / self.batch_ratios[dataset_id]))
+            batches_per_dataset.append(num_batches)
+
+        self.num_batches = max(batches_per_dataset)
+
+    def set_epoch(self, param_epoch):
+        self.epoch = param_epoch
+
+    def __len__(self):
+        return self.num_batches
+    
+    def __iter__(self):
+        random_generator = random.Random(SEED + self.epoch)
+        
+        shuffled_indices, current_indices = {}, {}
+        for dataset_id in self.batch_ratios.keys():
+            dataset_indices = self.ids_indices[dataset_id].tolist()
+            random_generator.shuffle(dataset_indices)
+            shuffled_indices[dataset_id] = dataset_indices
+            current_indices[dataset_id] = 0
+
+        for _ in range(self.num_batches):
+            batch =[]
+
+            for dataset_id, num_samples_per_batch in self.batch_ratios.items():
+                dataset_indices = shuffled_indices[dataset_id]
+                start_idx = current_indices[dataset_id]
+                end_idx = start_idx + num_samples_per_batch
+
+                if end_idx > len(dataset_indices):
+                    random_generator.shuffle(dataset_indices)
+                    start_idx = 0
+                    end_idx = num_samples_per_batch
+
+                batch.extend(dataset_indices[start_idx:end_idx])
+                current_indices[dataset_id] = end_idx
+
+            random_generator.shuffle(batch)
+            yield batch
 
 # Segmentation Dataset class for loading images and masks
 class SegmentationDataset(Dataset):
@@ -639,15 +694,14 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         dice_bce_loss = param_criterion(y_pred, batched_masks)
 
         # Pass the batch to each teacher model and collect the feature maps
-        teachers_features = []
+        teachers_features = [None] * len(param_teacher_models)
         with torch.no_grad():
-            for dataset_id in range(len(DATASET_NAMES)):
-                teacher_model = param_teacher_models[dataset_id]
+            for dataset_id, teacher_model in param_teacher_models.items():
                 _, teacher_features = teacher_model(batched_images, return_feature_maps=True)
-                teachers_features.append(teacher_features)
+                teachers_features[dataset_id] = teacher_features
 
         # Determine the weights for each teacher based on the specified mode and compute the distillation loss
-        teachers_weights = determine_teacher_weights(batched_dataset_ids, param_compute_weights_mode, len(DATASET_NAMES))
+        teachers_weights = determine_teachers_weights(batched_dataset_ids, param_compute_weights_mode, len(param_teacher_models))
         distillation_loss = compute_feature_distillation_loss(student_features, teachers_features, teachers_weights)
 
         total_loss = dice_bce_loss + distillation_loss
@@ -676,7 +730,7 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
     epoch_precision /= len(param_dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
-def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
+def evaluate_step(param_model, param_dataloader, param_criterion, param_teacher_models, param_compute_weights_mode, param_device):
     param_model.eval()
 
     epoch_loss = 0.0
@@ -691,10 +745,21 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
             batched_masks = batched_masks.to(param_device, dtype=torch.float32)
             batched_dataset_ids = batched_dataset_ids.to(param_device, dtype=torch.int64)
 
-            y_pred = param_model(batched_images)
-            loss = param_criterion(y_pred, batched_masks)
+            y_pred, student_features = param_model(batched_images, return_feature_maps=True)
+            dice_bce_loss = param_criterion(y_pred, batched_masks)
 
-            epoch_loss += loss.item()
+            # Pass the batch to each teacher model and collect the feature maps
+            teachers_features = [None] * len(param_teacher_models)
+            for dataset_id, teacher_model in param_teacher_models.items():
+                _, teacher_features = teacher_model(batched_images, return_feature_maps=True)
+                teachers_features[dataset_id] = teacher_features
+
+            # Determine the weights for each teacher based on the specified mode and compute the distillation loss
+            teachers_weights = determine_teachers_weights(batched_dataset_ids, param_compute_weights_mode, len(param_teacher_models))
+            distillation_loss = compute_feature_distillation_loss(student_features, teachers_features, teachers_weights)
+
+            total_loss = dice_bce_loss + distillation_loss
+            epoch_loss += total_loss.item()
 
             # Calculate metrics
             batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
@@ -753,8 +818,11 @@ if __name__ == '__main__':
     train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], param_transform=augmentation)
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'])
     
+    # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
+    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_ratios'])
+
     # Create dataloaders
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True)
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True)
 
     # Load teacher models checkpoints for each dataset
@@ -771,9 +839,10 @@ if __name__ == '__main__':
 
     for epoch in range(HYPERPARAMETERS['num_epochs']):
         start_time = time.time()
+        train_sampler.set_epoch(epoch)
 
         train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_models, HYPERPARAMETERS['teacher_weighting_mode'], DEVICE)
-        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
+        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, teacher_models, HYPERPARAMETERS['teacher_weighting_mode'], DEVICE)
         scheduler.step(validation_loss)
 
         if validation_metrics[1] > best_validation_metric:
