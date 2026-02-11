@@ -111,11 +111,11 @@ def determine_teachers_weights(param_dataset_ids, param_mode=0, param_num_teache
 
 class BalancedBatchSampler(Sampler):
     def __init__(self, param_dataset_ids, param_batch_ratios):
-        super().__init__(None)
+        super().__init__()
 
         self.dataset_ids = np.array(param_dataset_ids, dtype=np.int64)
         self.batch_ratios = param_batch_ratios
-        self.epoch = 0        
+        self.epoch = 0
 
         self.ids_indices = {dataset_id: np.where(self.dataset_ids == dataset_id)[0] for dataset_id in self.batch_ratios.keys()}
 
@@ -797,7 +797,8 @@ if __name__ == '__main__':
     print_and_save(LOG_PATH, start_datetime)
 
     # Log hyperparameters
-    hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\nEpochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\nWeighting mode: {HYPERPARAMETERS["teacher_weighting_mode"]}\n'
+    hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\nEpochs: {HYPERPARAMETERS["num_epochs"]}\n'
+    hyperparameters_log_text += f'Scheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\nWeighting mode: {HYPERPARAMETERS["teacher_weighting_mode"]}\nBatch ratios: {HYPERPARAMETERS["batch_ratios"]}\n'
     print_and_save(LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation

@@ -1,23 +1,13 @@
 
-2026-02-11 13:09:58.091263
+2026-02-11 19:56:22.120844
 Image size: (256, 256)
 Batch size: 8
 LR: 0.0001
 Epochs: 300
 Scheduler Patience: 5
 Early Stopping Patience: 35
-
-Dataset Size:
-Train: 72672
-Validation: 9197
-
-2026-02-11 13:15:17.778164
-Image size: (256, 256)
-Batch size: 8
-LR: 0.0001
-Epochs: 300
-Scheduler Patience: 5
-Early Stopping Patience: 35
+Weighting mode: 0
+Batch ratios: {0: 2, 1: 2, 2: 4}
 
 Dataset Size:
 Train: 72672
