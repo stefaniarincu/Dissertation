@@ -28,10 +28,10 @@ HYPERPARAMETERS = {
 }
 
 # Constants for dataset name, path, and checkpoint path
-DATASET_NAME = 'isles'
+DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
 os.makedirs(f'/home/dragos/disertation/files/{DATASET_NAME}', exist_ok=True)
-CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/best_model_{DATASET_NAME}.pth'
+CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/teacher_model_{DATASET_NAME}.pth'
 LOG_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/test_log_{DATASET_NAME}.txt'
 
 # Function that sets constant seed for reproducibility
