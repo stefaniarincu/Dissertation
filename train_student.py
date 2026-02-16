@@ -21,7 +21,7 @@ DEVICE = torch.device('cuda')
 # Constant for hyperparameters (moved here for claity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
-    'batch_size': 8,
+    'batch_size': 16,
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
@@ -700,10 +700,11 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
 
         # Pass the batch to each teacher model and collect the feature maps
         teachers_features = [None] * len(param_teacher_models)
-        with torch.inference_mode():
+        with torch.no_grad():
             if param_compute_weights_mode == 0:
                 teachers_features = [torch.empty_like(sf) for sf in student_features]
                 for dataset_id in batched_dataset_ids.unique(sorted=False):
+                    dataset_id = int(dataset_id.item())
                     indexes = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
                     _, teacher_features = param_teacher_models[dataset_id](batched_images[indexes], return_feature_maps=True)
                     for level_index in range(len(student_features)):
@@ -884,8 +885,8 @@ if __name__ == '__main__':
     train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_ratios'])
 
     # Create dataloaders
-    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=8, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=8, pin_memory=True, persistent_workers=True)
 
     # Load teacher models checkpoints for each dataset
     teacher_models = load_teacher_models(TEACHER_MODELS_CHECKPOINTS)
@@ -904,7 +905,7 @@ if __name__ == '__main__':
         train_sampler.set_epoch(epoch)
 
         train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_models, HYPERPARAMETERS['teacher_weighting_mode'], DEVICE)
-        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)#, teacher_models, HYPERPARAMETERS['teacher_weighting_mode'], DEVICE)
+        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)#teacher_models, HYPERPARAMETERS['teacher_weighting_mode'], DEVICE)
         scheduler.step(validation_loss)
 
         if validation_metrics[1] > best_validation_metric:

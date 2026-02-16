@@ -4,11 +4,12 @@ import datetime
 import time
 import numpy as np
 import cv2 as cv
+from sklearn.utils import shuffle
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 from torch.hub import load_state_dict_from_url
-from torch.nn import functional as F
+import torch.nn.functional as F
 from sklearn.metrics import accuracy_score
 import albumentations as A
 
@@ -20,19 +21,26 @@ DEVICE = torch.device('cuda')
 # Constant for hyperparameters (moved here for claity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
-    'batch_size': 8,
+    'batch_size': 16,
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 30,
+    'early_stopping_patience': 35,
+    'teacher_weighting_mode': 0, # 0 for one hot encoding, 1 for uniform weights
+    'batch_ratios': {0: 2, 1: 2, 2: 4} # for balanced batch sampler, the number of samples from each dataset in a batch
 }
 
-# Constants for dataset name, path, and checkpoint path
-DATASET_NAME = 'isles' # 'bmshare', 'brats'
-DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
-os.makedirs(f'/home/dragos/disertation/files/{DATASET_NAME}', exist_ok=True)
-CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/teacher_model_{DATASET_NAME}.pth'
-LOG_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/test_log_{DATASET_NAME}.txt'
+# Constant with dataset names
+DATASET_NAMES = ['isles', 'bmshare', 'brats']
+# Dictionary that maps dataset names to an id
+DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
+
+# Constants for dataset paths, checkpoint paths, and log paths
+DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
+DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASET_NAMES}
+os.makedirs('/home/dragos/disertation/files/student', exist_ok=True)
+CHECKPOINT_PATH = '/home/dragos/disertation/files/student/best_student_model.pth'
+LOG_PATH = '/home/dragos/disertation/files/student/test_log.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -62,6 +70,10 @@ def load_data(param_dataset_path):
     test_split_file = os.path.join(param_dataset_path, 'test.txt')
     test_images_path, test_masks_path = load_split_specific_file_names(param_dataset_path, test_split_file)
     return (test_images_path, test_masks_path)
+
+def shuffling(param_images_path, param_masks_path, param_dataset_ids):
+    param_images_path, param_masks_path, param_dataset_ids = shuffle(param_images_path, param_masks_path, param_dataset_ids, random_state=SEED)
+    return param_images_path, param_masks_path, param_dataset_ids
 
 # Segmentation Dataset class for loading images and masks
 class SegmentationDataset(Dataset):
@@ -96,6 +108,7 @@ class SegmentationDataset(Dataset):
         mask = torch.from_numpy(mask).float()
 
         return image, mask
+    
 
 # RESNET BACKBONE
 model_urls = {
@@ -470,7 +483,7 @@ class TResUnet(nn.Module):
 
         self.output = nn.Conv2d(32, 1, kernel_size=1)
 
-    def forward(self, x, heatmap=None):
+    def forward(self, x, return_feature_maps=False, heatmap=None):
         s0 = x
         s1 = self.layer0(s0)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
@@ -488,10 +501,17 @@ class TResUnet(nn.Module):
 
         y = self.output(d4)
 
-        if heatmap != None:
+        if return_feature_maps:
+            feature_maps = [s1, s2, s3, s4]
+
+        if heatmap is not None:
             hmap = save_feats_mean(d4)
+            if return_feature_maps:
+                return hmap, y, feature_maps
             return hmap, y
         else:
+            if return_feature_maps:
+                return y, feature_maps
             return y
 
 class DiceBCELoss(nn.Module):
@@ -552,47 +572,6 @@ def calculate_metrics(y_true, y_pred):
 
     return [score_jaccard, score_dice, score_recall, score_precision]#, score_acc, score_fbeta]
 
-def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_device):
-    param_model.train()
-    
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
-
-    for batched_images, batched_masks in param_dataloader:
-        batched_images = batched_images.to(param_device, dtype=torch.float32)
-        batched_masks = batched_masks.to(param_device, dtype=torch.float32)
-
-        param_optimizer.zero_grad()
-        y_pred = param_model(batched_images)
-        loss = param_criterion(y_pred, batched_masks)
-        loss.backward()
-        param_optimizer.step()
-        epoch_loss += loss.item()
-
-        # Calculate metrics
-        batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
-        for yt, yp in zip(batched_masks, y_pred):
-            score = calculate_metrics(yt, yp)
-            batch_jaccard.append(score[0])
-            batch_dice.append(score[1])
-            batch_recall.append(score[2])
-            batch_precision.append(score[3])
-
-        epoch_jaccard += np.mean(batch_jaccard)
-        epoch_dice += np.mean(batch_dice)
-        epoch_recall += np.mean(batch_recall)
-        epoch_precision += np.mean(batch_precision)
-
-    epoch_loss /= len(param_dataloader)
-    epoch_jaccard /= len(param_dataloader)
-    epoch_dice /= len(param_dataloader)
-    epoch_recall /= len(param_dataloader)
-    epoch_precision /= len(param_dataloader)
-    return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
-
 def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     param_model.eval()
 
@@ -608,9 +587,8 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
             batched_masks = batched_masks.to(param_device, dtype=torch.float32)
 
             y_pred = param_model(batched_images)
-            loss = param_criterion(y_pred, batched_masks)
-
-            epoch_loss += loss.item()
+            dice_bce_loss = param_criterion(y_pred, batched_masks)
+            epoch_loss += dice_bce_loss.item()
 
             # Calculate metrics
             batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
@@ -633,35 +611,94 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     epoch_precision /= len(param_dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
+'''
+def evaluate_step(param_model, param_dataloader, param_criterion, param_teacher_models, param_compute_weights_mode, param_device):
+    param_model.eval()
+
+    epoch_loss = 0.0
+    epoch_jaccard = 0.0
+    epoch_dice = 0.0
+    epoch_recall = 0.0
+    epoch_precision = 0.0
+
+    with torch.no_grad():
+        for batched_images, batched_masks, batched_dataset_ids in param_dataloader:
+            batched_images = batched_images.to(param_device, dtype=torch.float32)
+            batched_masks = batched_masks.to(param_device, dtype=torch.float32)
+            batched_dataset_ids = batched_dataset_ids.to(param_device, dtype=torch.int64)
+
+            y_pred, student_features = param_model(batched_images, return_feature_maps=True)
+            dice_bce_loss = param_criterion(y_pred, batched_masks)
+
+            # Pass the batch to each teacher model and collect the feature maps
+            teachers_features = [None] * len(param_teacher_models)
+            with torch.inference_mode():
+                for dataset_id, teacher_model in param_teacher_models.items():
+                    _, teacher_features = teacher_model(batched_images, return_feature_maps=True)
+                    teachers_features[dataset_id] = teacher_features
+
+            # Determine the weights for each teacher based on the specified mode and compute the distillation loss
+            teachers_weights = determine_teachers_weights(batched_dataset_ids, param_compute_weights_mode, len(param_teacher_models))
+            distillation_loss = compute_feature_distillation_loss(student_features, teachers_features, teachers_weights)
+
+            total_loss = dice_bce_loss + distillation_loss
+            epoch_loss += total_loss.item()
+
+            # Calculate metrics
+            batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
+            for yt, yp in zip(batched_masks, y_pred):
+                score = calculate_metrics(yt, yp)
+                batch_jaccard.append(score[0])
+                batch_dice.append(score[1])
+                batch_recall.append(score[2])
+                batch_precision.append(score[3])
+
+            epoch_jaccard += np.mean(batch_jaccard)
+            epoch_dice += np.mean(batch_dice)
+            epoch_recall += np.mean(batch_recall)
+            epoch_precision += np.mean(batch_precision)
+
+    epoch_loss /= len(param_dataloader)
+    epoch_jaccard /= len(param_dataloader)
+    epoch_dice /= len(param_dataloader)
+    epoch_recall /= len(param_dataloader)
+    epoch_precision /= len(param_dataloader)
+    return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
+'''
+
 if __name__ == '__main__':
     seed_all(SEED)
 
     if os.path.exists(LOG_PATH):
         print('Log file exists')
     else:
-        test_log_file = open(LOG_PATH, 'w')
-        test_log_file.write('\n')
-        test_log_file.close()
+        train_log_file = open(LOG_PATH, 'w')
+        train_log_file.write('\n')
+        train_log_file.close()
 
-    # Log the start time of testing
+    # Log the start time of training
     start_datetime = str(datetime.datetime.now())
     print_and_save(LOG_PATH, start_datetime)
 
-    # Load the images and masks file names for training and validation
-    (test_images_paths, test_masks_paths) = load_data(DATASET_PATH)
-    dataset_log_text = f'Dataset Size:\nTest: {len(test_images_paths)}\n'
-    print_and_save(LOG_PATH, dataset_log_text)
+    for dataset_name, dataset_path in DATASETS_PATHS.items():
+        dataset_log_text = f'{dataset_name} dataset path: {dataset_path}'
+        print_and_save(LOG_PATH, dataset_log_text)
 
-    # Create dataset for test
-    test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'])
+        # Load the images and masks file names for training and validation
+        (test_images_paths, test_masks_paths) = load_data(dataset_path)
+        dataset_log_text = f'Dataset Size:\nTest: {len(test_images_paths)}\n'
+        print_and_save(LOG_PATH, dataset_log_text)
 
-    # Create dataloaders
-    test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, pin_memory=True, num_workers=0)
+        # Create dataset for test
+        test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'])
 
-    # Load model from checkpoint
-    model = TResUnet().to(DEVICE)
-    model.load_state_dict(torch.load(CHECKPOINT_PATH))
+        # Create dataloaders
+        test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, pin_memory=True, num_workers=0)
 
-    test_loss, test_metrics = evaluate_step(model, test_dataloader, DiceBCELoss(), DEVICE)
-    test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}'
-    print_and_save(LOG_PATH, test_log_text)
+        # Load model from checkpoint
+        model = TResUnet().to(DEVICE)
+        model.load_state_dict(torch.load(CHECKPOINT_PATH))
+
+        test_loss, test_metrics = evaluate_step(model, test_dataloader, DiceBCELoss(), DEVICE)
+        test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n'
+        print_and_save(LOG_PATH, test_log_text)
