@@ -623,11 +623,6 @@ if __name__ == '__main__':
     start_datetime = str(datetime.datetime.now())
     print_and_save(LOG_PATH, start_datetime)
 
-    # Log hyperparameters
-    hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\nEpochs: {HYPERPARAMETERS["num_epochs"]}\n'
-    hyperparameters_log_text += f'Scheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\nWeighting mode: {HYPERPARAMETERS["teacher_weighting_mode"]}\nBatch ratios: {HYPERPARAMETERS["batch_ratios"]}\n'
-    print_and_save(LOG_PATH, hyperparameters_log_text)
-
     for dataset_name, dataset_path in DATASETS_PATHS.items():
         dataset_log_text = f'{dataset_name} dataset path: {dataset_path}'
         print_and_save(LOG_PATH, dataset_log_text)

@@ -27,10 +27,10 @@ HYPERPARAMETERS = {
     'early_stopping_patience': 30,
 }
 
-# Constants for dataset name, path, and checkpoint path
+# Constants for dataset name and path
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
-os.makedirs(f'/home/dragos/disertation/files/{DATASET_NAME}', exist_ok=True)
+# Constant for model checkpoint path and log path
 CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/teacher_model_{DATASET_NAME}.pth'
 LOG_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/test_log_{DATASET_NAME}.txt'
 
@@ -658,7 +658,7 @@ if __name__ == '__main__':
     # Create dataloaders
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, pin_memory=True, num_workers=0)
 
-    # Create model, optimizer, scheduler, and criterion
+    # Load model from checkpoint
     model = TResUnet().to(DEVICE)
     model.load_state_dict(torch.load(CHECKPOINT_PATH))
 

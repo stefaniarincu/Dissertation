@@ -28,9 +28,10 @@ HYPERPARAMETERS = {
     'early_stopping_patience': 35,
 }
 
-# Constants for dataset name, path, and checkpoint path
+# Constants for dataset name and path
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
+# Constant for model checkpoint path and log path
 os.makedirs(f'/home/dragos/disertation/files2/{DATASET_NAME}', exist_ok=True)
 CHECKPOINT_PATH = f'/home/dragos/disertation/files2/{DATASET_NAME}/best_model_{DATASET_NAME}.pth'
 LOG_PATH = f'/home/dragos/disertation/files2/{DATASET_NAME}/train_log_{DATASET_NAME}.txt'
