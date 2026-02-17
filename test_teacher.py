@@ -649,7 +649,7 @@ if __name__ == '__main__':
 
     # Load the images and masks file names for training and validation
     (test_images_paths, test_masks_paths) = load_data(DATASET_PATH)
-    dataset_log_text = f'Dataset Size:\nTest: {len(test_images_paths)}\n'
+    dataset_log_text = f'Test set size: {len(test_images_paths)}\n'
     print_and_save(LOG_PATH, dataset_log_text)
 
     # Create dataset for test
@@ -658,7 +658,7 @@ if __name__ == '__main__':
     # Create dataloaders
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, pin_memory=True, num_workers=0)
 
-    # Load model from checkpoint
+    # Create model, optimizer, scheduler, and criterion
     model = TResUnet().to(DEVICE)
     model.load_state_dict(torch.load(CHECKPOINT_PATH))
 
