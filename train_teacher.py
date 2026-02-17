@@ -32,9 +32,9 @@ HYPERPARAMETERS = {
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
 # Constant for model checkpoint path and log path
-os.makedirs(f'/home/dragos/disertation/files2/{DATASET_NAME}', exist_ok=True)
-CHECKPOINT_PATH = f'/home/dragos/disertation/files2/{DATASET_NAME}/best_model_{DATASET_NAME}.pth'
-LOG_PATH = f'/home/dragos/disertation/files2/{DATASET_NAME}/train_log_{DATASET_NAME}.txt'
+os.makedirs(f'/home/dragos/disertation/files/{DATASET_NAME}', exist_ok=True)
+CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/best_model_{DATASET_NAME}.pth'
+LOG_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/train_log_{DATASET_NAME}.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -96,14 +96,10 @@ class SegmentationDataset(Dataset):
             mask = augmentations['mask']
 
         image = cv.resize(image, self.size)
-        image = np.transpose(image, (2, 0, 1))
-        image = image / 255.0
-        image = torch.from_numpy(image).float()
+        image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
 
         mask = cv.resize(mask, self.size)
-        mask = np.expand_dims(mask, axis=0)
-        mask = mask / 255.0
-        mask = torch.from_numpy(mask).float()
+        mask = torch.from_numpy(mask).unsqueeze(0).float() / 255.0
 
         return image, mask
 
@@ -539,7 +535,7 @@ def jac_score(y_true, y_pred):
     intersection = (y_true * y_pred).sum()
     union = y_true.sum() + y_pred.sum() - intersection
     return (intersection + 1e-15) / (union + 1e-15)
-        
+
 def calculate_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
     y_pred = y_pred.detach().cpu().numpy()
@@ -551,12 +547,19 @@ def calculate_metrics(y_true, y_pred):
     y_true = y_true > 0.5
     y_true = y_true.reshape(-1)
     y_true = y_true.astype(np.uint8)
+    
+    intersection = (y_true * y_pred).sum()
+    union = y_true.sum() + y_pred.sum() - intersection
+    score_precision = (intersection + 1e-15) / (y_pred.sum() + 1e-15)
+    score_recall = (intersection + 1e-15) / (y_true.sum() + 1e-15)
+    score_dice = (2.0 * intersection + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
+    score_jaccard = (intersection + 1e-15) / (union + 1e-15)
 
     # Compute the scores for each metric
-    score_jaccard = jac_score(y_true, y_pred)
+    '''score_jaccard = jac_score(y_true, y_pred)
     score_dice = dice_score(y_true, y_pred)
     score_recall = recall(y_true, y_pred)
-    score_precision = precision(y_true, y_pred)
+    score_precision = precision(y_true, y_pred)'''
     #score_fbeta = F2(y_true, y_pred)
     #score_acc = accuracy_score(y_true, y_pred)
 
@@ -681,8 +684,8 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'])
     
     # Create dataloaders
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Create model, optimizer, scheduler, and criterion
     model = TResUnet().to(DEVICE)
@@ -703,7 +706,6 @@ if __name__ == '__main__':
         if validation_metrics[1] > best_validation_metric:
             data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
             print_and_save(LOG_PATH, data_str)
-
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0

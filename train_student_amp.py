@@ -28,7 +28,7 @@ HYPERPARAMETERS = {
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 35,
-    'teacher_weighting_mode': 2, # 0 for one hot encoding, 1 for uniform weights, 2 for [0.5, 0.25, 0.25] weights
+    'teacher_weighting_mode': 0, # 0 for one hot encoding, 1 for uniform weights, 2 for [0.5, 0.25, 0.25] weights
     'batch_ratios': {0: 2, 1: 2, 2: 4} # for balanced batch sampler, the number of samples from each dataset in a batch
 }
 
@@ -41,9 +41,9 @@ DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASET_NAMES}
 # Constants for student model checkpoint path and log path
-os.makedirs('/home/dragos/disertation/files/student/weighted', exist_ok=True)
-CHECKPOINT_PATH = '/home/dragos/disertation/files/student/weighted/best_student_model.pth'
-LOG_PATH = '/home/dragos/disertation/files/student/weighted/train_log.txt'
+os.makedirs('/home/dragos/disertation/files/student/one-hot', exist_ok=True)
+CHECKPOINT_PATH = '/home/dragos/disertation/files/student/one-hot/best_student_model.pth'
+LOG_PATH = '/home/dragos/disertation/files/student/one-hot/train_log.txt'
 # Constant for teacher models checkpoint paths and a mapping from dataset names to paths
 TEACHER_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
 TEACHER_MODELS_CHECKPOINTS = {dataset_name: os.path.join(TEACHER_MODELS_ROOT_PATH, dataset_name, f'teacher_model_{dataset_name}.pth') for dataset_name in DATASET_NAMES}
@@ -681,11 +681,18 @@ def calculate_metrics(y_true, y_pred):
     y_true = y_true.reshape(-1)
     y_true = y_true.astype(np.uint8)
 
+    intersection = (y_true * y_pred).sum()
+    union = y_true.sum() + y_pred.sum() - intersection
+    score_precision = (intersection + 1e-15) / (y_pred.sum() + 1e-15)
+    score_recall = (intersection + 1e-15) / (y_true.sum() + 1e-15)
+    score_dice = (2.0 * intersection + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
+    score_jaccard = (intersection + 1e-15) / (union + 1e-15)
+
     # Compute the scores for each metric
-    score_jaccard = jac_score(y_true, y_pred)
+    '''score_jaccard = jac_score(y_true, y_pred)
     score_dice = dice_score(y_true, y_pred)
     score_recall = recall(y_true, y_pred)
-    score_precision = precision(y_true, y_pred)
+    score_precision = precision(y_true, y_pred)'''
     #score_fbeta = F2(y_true, y_pred)
     #score_acc = accuracy_score(y_true, y_pred)
 
@@ -905,8 +912,8 @@ if __name__ == '__main__':
     train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_ratios'])
 
     # Create dataloaders
-    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=8, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=8, pin_memory=True, persistent_workers=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load teacher models checkpoints for each dataset
     teacher_models = load_teacher_models(TEACHER_MODELS_CHECKPOINTS)

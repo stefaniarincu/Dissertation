@@ -680,11 +680,18 @@ def calculate_metrics(y_true, y_pred):
     y_true = y_true.reshape(-1)
     y_true = y_true.astype(np.uint8)
 
+    intersection = (y_true * y_pred).sum()
+    union = y_true.sum() + y_pred.sum() - intersection
+    score_precision = (intersection + 1e-15) / (y_pred.sum() + 1e-15)
+    score_recall = (intersection + 1e-15) / (y_true.sum() + 1e-15)
+    score_dice = (2.0 * intersection + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
+    score_jaccard = (intersection + 1e-15) / (union + 1e-15)
+
     # Compute the scores for each metric
-    score_jaccard = jac_score(y_true, y_pred)
+    '''score_jaccard = jac_score(y_true, y_pred)
     score_dice = dice_score(y_true, y_pred)
     score_recall = recall(y_true, y_pred)
-    score_precision = precision(y_true, y_pred)
+    score_precision = precision(y_true, y_pred)'''
     #score_fbeta = F2(y_true, y_pred)
     #score_acc = accuracy_score(y_true, y_pred)
 
