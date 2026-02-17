@@ -12,8 +12,9 @@ from torch.hub import load_state_dict_from_url
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score
 import albumentations as A
+from torch.amp import autocast
 
-#cv.setNumThreads(0)
+cv.setNumThreads(0)
 # Set a fixed seed value
 SEED = 42
 # Set the device to cuda
@@ -427,7 +428,7 @@ def save_feats_mean(x):
             x = x.detach().cpu().numpy()
             x = np.transpose(x[0], (1, 2, 0))
             x = np.mean(x, axis=-1)
-            x = x/np.max(x)
+            x = x / (np.max(x) + 1e-8)
             x = x * 255.0
             x = x.astype(np.uint8)
             x = cv.applyColorMap(x, cv.COLORMAP_JET)
@@ -638,10 +639,10 @@ def compute_feature_distillation_loss(param_student_features, param_teachers_fea
     distillation_loss = 0.0
 
     for encoder_block_index in range(len(param_student_features)):
-        student_feature = param_student_features[encoder_block_index]
+        student_feature = param_student_features[encoder_block_index].float()
 
         for dataset_id in range(len(DATASET_NAMES)):
-            teacher_feature = param_teachers_features[dataset_id][encoder_block_index].detach()
+            teacher_feature = param_teachers_features[dataset_id][encoder_block_index].detach().float()
             mse_difference_per_sample = F.mse_loss(student_feature, teacher_feature, reduction='none').mean(dim=(1, 2, 3))
             distillation_loss += (param_teachers_weights[:, dataset_id] * mse_difference_per_sample).mean()
 
@@ -669,8 +670,8 @@ def jac_score(y_true, y_pred):
     return (intersection + 1e-15) / (union + 1e-15)
         
 def calculate_metrics(y_true, y_pred):
-    y_true = y_true.detach().cpu().numpy()
-    y_pred = y_pred.detach().cpu().numpy()
+    y_true = y_true.detach().float().cpu().numpy()
+    y_pred = y_pred.detach().float().cpu().numpy()
 
     y_pred = y_pred > 0.5
     y_pred = y_pred.reshape(-1)
@@ -706,8 +707,10 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         batched_dataset_ids = batched_dataset_ids.to(param_device, non_blocking=True, dtype=torch.long)
 
         param_optimizer.zero_grad(set_to_none=True)
-        y_pred, student_features = param_model(batched_images, return_feature_maps=True)
-        dice_bce_loss = param_criterion(y_pred, batched_masks)
+
+        with autocast(device_type='cuda', dtype=torch.bfloat16, enabled=True):
+            y_pred, student_features = param_model(batched_images, return_feature_maps=True)
+        dice_bce_loss = param_criterion(y_pred.float(), batched_masks.float())
 
         # Pass the batch to each teacher model and collect the feature maps
         with torch.no_grad():
@@ -718,19 +721,21 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
                 for dataset_id in batched_dataset_ids.unique(sorted=False):
                     dataset_id = int(dataset_id.item())
                     indexes = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
-                    teacher_feats = param_teacher_models[dataset_id].encode(batched_images[indexes])
+                    with autocast(device_type='cuda', dtype=torch.bfloat16, enabled=True):
+                        teacher_feats = param_teacher_models[dataset_id].encode(batched_images[indexes])
                     for encoder_block_index in range(len(student_features)):
                         teacher_features_by_dataset_id[encoder_block_index][indexes] = teacher_feats[encoder_block_index]
 
                 # Compute the distillation loss using the collected teacher features and the student features
                 distillation_loss = 0.0
                 for encoder_block_index in range(len(student_features)):
-                    distillation_loss += F.mse_loss(student_features[encoder_block_index], teacher_features_by_dataset_id[encoder_block_index], reduction='mean')
+                    distillation_loss += F.mse_loss(student_features[encoder_block_index].float(), teacher_features_by_dataset_id[encoder_block_index].float(), reduction='mean')
             # Otherwise, the features are collected from all teacher models and weighted based on the specified mode to compute the distillation loss
             else:
                 teachers_features = [None] * len(param_teacher_models)
-                for dataset_id, teacher_model in param_teacher_models.items():
-                    teachers_features[dataset_id] = teacher_model.encode(batched_images)
+                with autocast(device_type='cuda', dtype=torch.bfloat16, enabled=True):
+                    for dataset_id, teacher_model in param_teacher_models.items():
+                        teachers_features[dataset_id] = teacher_model.encode(batched_images)
 
                 # Determine the weights for each teacher based on the specified mode and compute the distillation loss
                 teachers_weights = determine_teachers_weights(batched_dataset_ids, param_teacher_weight_mode, len(param_teacher_models))
@@ -740,7 +745,7 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         total_loss = dice_bce_loss + distillation_loss
         total_loss.backward()
         param_optimizer.step()
-        epoch_loss += total_loss.item()
+        epoch_loss += float(total_loss.detach().cpu().item())
 
         # Calculate metrics
         batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
@@ -778,9 +783,10 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
             batched_images = batched_images.to(param_device, non_blocking=True)
             batched_masks = batched_masks.to(param_device, non_blocking=True)
 
-            y_pred = param_model(batched_images)
-            dice_bce_loss = param_criterion(y_pred, batched_masks)
-            epoch_loss += dice_bce_loss.item()
+            with autocast(device_type='cuda', dtype=torch.bfloat16, enabled=True):
+                y_pred = param_model(batched_images)
+            dice_bce_loss = param_criterion(y_pred.float(), batched_masks.float())
+            epoch_loss += float(dice_bce_loss.detach().cpu().item())
 
             # Calculate metrics
             batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
