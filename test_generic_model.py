@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from sklearn.metrics import accuracy_score
 import albumentations as A
 
-#cv.setNumThreads(0)
+cv.setNumThreads(0)
 # Set a fixed seed value
 SEED = 42
 # Set the device to cuda
@@ -22,30 +22,18 @@ DEVICE = torch.device('cuda')
 # Constant for hyperparameters (moved here for claity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
-    'batch_size': 8,
-    'num_epochs': 300,
-    'init_learning_rate': 0.0001,
-    'scheduler_patience': 5,
-    'early_stopping_patience': 35,
-    'teacher_weighting_mode': 2, # 0 for one hot encoding, 1 for uniform weights, 2 for [0.5, 0.25, 0.25] weights
-    'batch_ratios': {0: 2, 1: 2, 2: 4} # for balanced batch sampler, the number of samples from each dataset in a batch
+    'batch_size': 16
 }
 
-# Constant with dataset names
-DATASET_NAMES = ['isles', 'bmshare', 'brats']
 # Dictionary that maps dataset names to an id
 DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 
 # Constants for dataset paths
 DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
-DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASET_NAMES}
+DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for student model checkpoint path and log path
-os.makedirs('/home/dragos/disertation/files/student/weighted', exist_ok=True)
-CHECKPOINT_PATH = '/home/dragos/disertation/files/student/weighted/best_student_model.pth'
-LOG_PATH = '/home/dragos/disertation/files/student/weighted/train_log.txt'
-# Constant for teacher models checkpoint paths and a mapping from dataset names to paths
-TEACHER_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
-TEACHER_MODELS_CHECKPOINTS = {dataset_name: os.path.join(TEACHER_MODELS_ROOT_PATH, dataset_name, f'teacher_model_{dataset_name}.pth') for dataset_name in DATASET_NAMES}
+CHECKPOINT_PATH = '/home/dragos/disertation/results/dataset_generic/weighted/dataset_generic_model.pth'
+LOG_PATH = '/home/dragos/disertation/results/dataset_generic/weighted/train_log_dataset_generic.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -64,124 +52,27 @@ def print_and_save(param_file_path, param_text):
         file.write('\n')
 
 # Function that loads all file names for images and masks in the dataset
-def load_file_names(param_dataset_path, param_split_file):
+def load_split_specific_file_names(param_dataset_path, param_split_file):
     file_names = open(param_split_file, 'r').read().split('\n')[:-1]
     images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
     masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
     return images, masks
 
 # Function that loads training and validation data from specified dataset path
-def load_data(param_dataset_paths):
-    all_train_images, all_train_masks, all_train_dataset_ids = [], [], []
-    all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
-
-    for dataset_name, dataset_path in param_dataset_paths.items():
-        train_images, train_masks = load_file_names(dataset_path, os.path.join(dataset_path, 'train.txt'))
-        validation_images, validation_masks = load_file_names(dataset_path, os.path.join(dataset_path, 'val.txt'))
-
-        dataset_id = DATASETS_TO_IDS[dataset_name]
-        all_train_images.extend(train_images)
-        all_train_masks.extend(train_masks)
-        all_train_dataset_ids.extend([dataset_id] * len(train_images))
-
-        all_validation_images.extend(validation_images)
-        all_validation_masks.extend(validation_masks)
-        all_validation_dataset_ids.extend([dataset_id] * len(validation_images))
-
-    return (all_train_images, all_train_masks, all_train_dataset_ids), (all_validation_images, all_validation_masks, all_validation_dataset_ids)
-
-def shuffling(param_images_path, param_masks_path, param_dataset_ids):
-    param_images_path, param_masks_path, param_dataset_ids = shuffle(param_images_path, param_masks_path, param_dataset_ids, random_state=SEED)
-    return param_images_path, param_masks_path, param_dataset_ids
-
-# Function that loads teacher models from specified checkpoints and returns a dictionary that maps dataset ids to the corresponding teacher model
-def load_teacher_models(param_teacher_models_checkpoints):
-    teacher_models = {}
-    for dataset_name, checkpoint_path in param_teacher_models_checkpoints.items():
-        teacher_model = TResUnet().to(DEVICE)
-        teacher_model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE))
-        teacher_model.eval()
-
-        # Freeze the parameters of each teacher model
-        for param in teacher_model.parameters():
-            param.requires_grad = False
-
-        teacher_models[DATASETS_TO_IDS[dataset_name]] = teacher_model
-    return teacher_models
-
-# Determine the weights for each teacher based on the specified mode and the dataset ids of the samples in the batch
-def determine_teachers_weights(param_dataset_ids, param_mode=0, param_num_teachers=len(DATASET_NAMES)):
-    if param_mode == 0: # one hot encoding = > 1 for the teacher corresponding to the dataset and 0 for the others
-        return F.one_hot(param_dataset_ids, num_classes=param_num_teachers).float().to(DEVICE)
-    elif param_mode == 1: # uniform weights = > 1/num_teachers for all teachers
-        return torch.full((param_dataset_ids.shape[0], param_num_teachers), 1.0 / param_num_teachers, device=DEVICE, dtype=torch.float32)
-    elif param_mode == 2: # custom weights = > 0.5 for the teacher corresponding to the dataset and 0.25 for the others
-        weights = torch.full((param_dataset_ids.shape[0], param_num_teachers), 0.25, device=DEVICE, dtype=torch.float32)
-        return weights.scatter_(1, param_dataset_ids.view(-1, 1), 0.5)
-
-class BalancedBatchSampler(Sampler):
-    def __init__(self, param_dataset_ids, param_batch_ratios):
-        super().__init__()
-
-        self.dataset_ids = np.array(param_dataset_ids, dtype=np.int64)
-        self.batch_ratios = param_batch_ratios
-        self.epoch = 0
-
-        self.ids_indices = {dataset_id: np.where(self.dataset_ids == dataset_id)[0] for dataset_id in self.batch_ratios.keys()}
-
-        batches_per_dataset = []
-        for dataset_id in self.batch_ratios.keys():
-            num_samples = len(self.ids_indices[dataset_id])
-            num_batches = int(np.ceil(num_samples / self.batch_ratios[dataset_id]))
-            batches_per_dataset.append(num_batches)
-
-        self.num_batches = max(batches_per_dataset)
-
-    def set_epoch(self, param_epoch):
-        self.epoch = param_epoch
-
-    def __len__(self):
-        return self.num_batches
-    
-    def __iter__(self):
-        random_generator = random.Random(SEED + self.epoch)
-        
-        shuffled_indices, current_indices = {}, {}
-        for dataset_id in self.batch_ratios.keys():
-            dataset_indices = self.ids_indices[dataset_id].tolist()
-            random_generator.shuffle(dataset_indices)
-            shuffled_indices[dataset_id] = dataset_indices
-            current_indices[dataset_id] = 0
-
-        for _ in range(self.num_batches):
-            batch =[]
-
-            for dataset_id, num_samples_per_batch in self.batch_ratios.items():
-                dataset_indices = shuffled_indices[dataset_id]
-                start_idx = current_indices[dataset_id]
-                end_idx = start_idx + num_samples_per_batch
-
-                if end_idx > len(dataset_indices):
-                    random_generator.shuffle(dataset_indices)
-                    start_idx = 0
-                    end_idx = num_samples_per_batch
-
-                batch.extend(dataset_indices[start_idx:end_idx])
-                current_indices[dataset_id] = end_idx
-
-            random_generator.shuffle(batch)
-            yield batch
+# Function that loads test data from specified dataset path
+def load_data(param_dataset_path):
+    test_split_file = os.path.join(param_dataset_path, 'test.txt')
+    test_images_path, test_masks_path = load_split_specific_file_names(param_dataset_path, test_split_file)
+    return (test_images_path, test_masks_path)
 
 # Segmentation Dataset class for loading images and masks
 class SegmentationDataset(Dataset):
-    def __init__(self, param_images_path, param_masks_path, param_dataset_ids, param_size, param_transform=None):
+    def __init__(self, param_images_path, param_masks_path, param_size):
         super().__init__()
         self.images_path = param_images_path
         self.masks_path = param_masks_path
-        self.dataset_ids = param_dataset_ids
         self.num_samples = len(param_images_path)
         self.size = param_size
-        self.transform = param_transform
 
     def __len__(self):
         return self.num_samples
@@ -189,12 +80,6 @@ class SegmentationDataset(Dataset):
     def __getitem__(self, param_index):
         image = cv.imread(self.images_path[param_index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_path[param_index], cv.IMREAD_GRAYSCALE)
-        dataset_id = self.dataset_ids[param_index]
-
-        if self.transform is not None:
-            augmentations = self.transform(image=image, mask=mask)
-            image = augmentations['image']
-            mask = augmentations['mask']
 
         image = cv.resize(image, self.size)
         image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
@@ -202,8 +87,7 @@ class SegmentationDataset(Dataset):
         mask = cv.resize(mask, self.size)
         mask = torch.from_numpy(mask).unsqueeze(0).float() / 255.0
 
-        return image, mask, dataset_id
-
+        return image, mask
 
 # RESNET BACKBONE
 model_urls = {
@@ -634,19 +518,6 @@ class DiceBCELoss(nn.Module):
         dice_loss = 1.0 - (2.*intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
         return bce_loss + dice_loss
 
-def compute_feature_distillation_loss(param_student_features, param_teachers_features, param_teachers_weights):
-    distillation_loss = 0.0
-
-    for encoder_block_index in range(len(param_student_features)):
-        student_feature = param_student_features[encoder_block_index]
-
-        for dataset_id in range(len(DATASET_NAMES)):
-            teacher_feature = param_teachers_features[dataset_id][encoder_block_index].detach()
-            mse_difference_per_sample = F.mse_loss(student_feature, teacher_feature, reduction='none').mean(dim=(1, 2, 3))
-            distillation_loss += (param_teachers_weights[:, dataset_id] * mse_difference_per_sample).mean()
-
-    return distillation_loss
-
 def precision(y_true, y_pred):
     intersection = (y_true * y_pred).sum()
     return (intersection + 1e-15) / (y_pred.sum() + 1e-15)
@@ -697,80 +568,7 @@ def calculate_metrics(y_true, y_pred):
 
     return [score_jaccard, score_dice, score_recall, score_precision]#, score_acc, score_fbeta]
 
-# Function that performs a training step for the student model, including the distillation loss from the teacher models based on the specified weighting mode
-def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_teacher_models, param_teacher_weight_mode, param_device):
-    param_model.train()
-    
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
-
-    for batched_images, batched_masks, batched_dataset_ids in param_dataloader:
-        batched_images = batched_images.to(param_device, non_blocking=True)
-        batched_masks = batched_masks.to(param_device, non_blocking=True)
-        batched_dataset_ids = batched_dataset_ids.to(param_device, non_blocking=True, dtype=torch.long)
-
-        param_optimizer.zero_grad(set_to_none=True)
-        y_pred, student_features = param_model(batched_images, return_feature_maps=True)
-        dice_bce_loss = param_criterion(y_pred, batched_masks)
-
-        # Pass the batch to each teacher model and collect the feature maps
-        with torch.no_grad():
-            # In this mode only the features from the teacher corresponding to the dataset of each sample are used for distillation
-            if param_teacher_weight_mode == 0:
-                teacher_features_by_dataset_id = [torch.empty_like(sf) for sf in student_features]
-                # Iterate over the unique dataset ids in the batch and pass the corresponding samples through the appropriate teacher model to collect the teacher features
-                for dataset_id in batched_dataset_ids.unique(sorted=False):
-                    dataset_id = int(dataset_id.item())
-                    indexes = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
-                    teacher_feats = param_teacher_models[dataset_id].encode(batched_images[indexes])
-                    for encoder_block_index in range(len(student_features)):
-                        teacher_features_by_dataset_id[encoder_block_index][indexes] = teacher_feats[encoder_block_index]
-
-                # Compute the distillation loss using the collected teacher features and the student features
-                distillation_loss = 0.0
-                for encoder_block_index in range(len(student_features)):
-                    distillation_loss += F.mse_loss(student_features[encoder_block_index], teacher_features_by_dataset_id[encoder_block_index], reduction='mean')
-            # Otherwise, the features are collected from all teacher models and weighted based on the specified mode to compute the distillation loss
-            else:
-                teachers_features = [None] * len(param_teacher_models)
-                for dataset_id, teacher_model in param_teacher_models.items():
-                    teachers_features[dataset_id] = teacher_model.encode(batched_images)
-
-                # Determine the weights for each teacher based on the specified mode and compute the distillation loss
-                teachers_weights = determine_teachers_weights(batched_dataset_ids, param_teacher_weight_mode, len(param_teacher_models))
-                distillation_loss = compute_feature_distillation_loss(student_features, teachers_features, teachers_weights)
-
-        # Combine the segmentation loss and the distillation loss, perform backpropagation and update the model parameters
-        total_loss = dice_bce_loss + distillation_loss
-        total_loss.backward()
-        param_optimizer.step()
-        epoch_loss += total_loss.item()
-
-        # Calculate metrics
-        batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
-        for yt, yp in zip(batched_masks, y_pred):
-            score = calculate_metrics(yt, yp)
-            batch_jaccard.append(score[0])
-            batch_dice.append(score[1])
-            batch_recall.append(score[2])
-            batch_precision.append(score[3])
-
-        epoch_jaccard += np.mean(batch_jaccard)
-        epoch_dice += np.mean(batch_dice)
-        epoch_recall += np.mean(batch_recall)
-        epoch_precision += np.mean(batch_precision)
-
-    epoch_loss /= len(param_dataloader)
-    epoch_jaccard /= len(param_dataloader)
-    epoch_dice /= len(param_dataloader)
-    epoch_recall /= len(param_dataloader)
-    epoch_precision /= len(param_dataloader)
-    return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
-
-# Function that performs an evaluation step for the student model
+# Function that evaluates the model on the test set
 def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     param_model.eval()
 
@@ -781,7 +579,7 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     epoch_precision = 0.0
 
     with torch.inference_mode():
-        for batched_images, batched_masks, _ in param_dataloader:
+        for batched_images, batched_masks in param_dataloader:
             batched_images = batched_images.to(param_device, non_blocking=True)
             batched_masks = batched_masks.to(param_device, non_blocking=True)
 
@@ -810,61 +608,6 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     epoch_precision /= len(param_dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
-'''
-def evaluate_step(param_model, param_dataloader, param_criterion, param_teacher_models, param_teacher_weight_mode, param_device):
-    param_model.eval()
-
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
-
-    with torch.no_grad():
-        for batched_images, batched_masks, batched_dataset_ids in param_dataloader:
-            batched_images = batched_images.to(param_device, dtype=torch.float32)
-            batched_masks = batched_masks.to(param_device, dtype=torch.float32)
-            batched_dataset_ids = batched_dataset_ids.to(param_device, dtype=torch.int64)
-
-            y_pred, student_features = param_model(batched_images, return_feature_maps=True)
-            dice_bce_loss = param_criterion(y_pred, batched_masks)
-
-            # Pass the batch to each teacher model and collect the feature maps
-            teachers_features = [None] * len(param_teacher_models)
-            with torch.inference_mode():
-                for dataset_id, teacher_model in param_teacher_models.items():
-                    _, teacher_features = teacher_model(batched_images, return_feature_maps=True)
-                    teachers_features[dataset_id] = teacher_features
-
-            # Determine the weights for each teacher based on the specified mode and compute the distillation loss
-            teachers_weights = determine_teachers_weights(batched_dataset_ids, param_teacher_weight_mode, len(param_teacher_models))
-            distillation_loss = compute_feature_distillation_loss(student_features, teachers_features, teachers_weights)
-
-            total_loss = dice_bce_loss + distillation_loss
-            epoch_loss += total_loss.item()
-
-            # Calculate metrics
-            batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
-            for yt, yp in zip(batched_masks, y_pred):
-                score = calculate_metrics(yt, yp)
-                batch_jaccard.append(score[0])
-                batch_dice.append(score[1])
-                batch_recall.append(score[2])
-                batch_precision.append(score[3])
-
-            epoch_jaccard += np.mean(batch_jaccard)
-            epoch_dice += np.mean(batch_dice)
-            epoch_recall += np.mean(batch_recall)
-            epoch_precision += np.mean(batch_precision)
-
-    epoch_loss /= len(param_dataloader)
-    epoch_jaccard /= len(param_dataloader)
-    epoch_dice /= len(param_dataloader)
-    epoch_recall /= len(param_dataloader)
-    epoch_precision /= len(param_dataloader)
-    return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
-'''
-
 if __name__ == '__main__':
     seed_all(SEED)
 
@@ -879,74 +622,25 @@ if __name__ == '__main__':
     start_datetime = str(datetime.datetime.now())
     print_and_save(LOG_PATH, start_datetime)
 
-    # Log hyperparameters
-    hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\nEpochs: {HYPERPARAMETERS["num_epochs"]}\n'
-    hyperparameters_log_text += f'Scheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\nWeighting mode: {HYPERPARAMETERS["teacher_weighting_mode"]}\nBatch ratios: {HYPERPARAMETERS["batch_ratios"]}\n'
-    print_and_save(LOG_PATH, hyperparameters_log_text)
+    for dataset_name, dataset_path in DATASETS_PATHS.items():
+        dataset_log_text = f'{dataset_name} dataset path: {dataset_path}'
+        print_and_save(LOG_PATH, dataset_log_text)
 
-    # Load the images and masks file names for training and validation
-    (train_images_paths, train_masks_paths, train_dataset_ids), (validation_images_paths, validation_masks_paths, validation_dataset_ids) = load_data(DATASETS_PATHS)
-    train_images_paths, train_masks_paths, train_dataset_ids = shuffling(train_images_paths, train_masks_paths, train_dataset_ids)
-    dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
-    print_and_save(LOG_PATH, dataset_log_text)
+        # Load the images and masks file names for training and validation
+        (test_images_paths, test_masks_paths) = load_data(dataset_path)
+        dataset_log_text = f'Test set size: {len(test_images_paths)}\n'
+        print_and_save(LOG_PATH, dataset_log_text)
 
-    # Define data augmentation transforms using albumentations
-    augmentation = A.Compose([
-        A.Rotate(limit=35, p=0.3),
-        A.HorizontalFlip(p=0.3),
-        A.VerticalFlip(p=0.3),
-        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
-    ])
+        # Create dataset for test
+        test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'])
 
-    # Create datasets for training and validation
-    train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], param_transform=augmentation)
-    validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'])
-    
-    # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
-    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_ratios'])
+        # Create dataloaders
+        test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
 
-    # Create dataloaders
-    train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=8, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=8, pin_memory=True, persistent_workers=True)
+        # Load model from checkpoint
+        model = TResUnet().to(DEVICE)
+        model.load_state_dict(torch.load(CHECKPOINT_PATH))
 
-    # Load teacher models checkpoints for each dataset
-    teacher_models = load_teacher_models(TEACHER_MODELS_CHECKPOINTS)
-
-    # Create model, optimizer, scheduler, and criterion
-    model = TResUnet().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
-    criterion = DiceBCELoss()
-
-    best_validation_metric = 0.0
-    num_epochs_no_improvement = 0
-
-    for epoch in range(HYPERPARAMETERS['num_epochs']):
-        start_time = time.time()
-        train_sampler.set_epoch(epoch)
-
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_models, HYPERPARAMETERS['teacher_weighting_mode'], DEVICE)
-        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)#teacher_models, HYPERPARAMETERS['teacher_weighting_mode'], DEVICE)
-        scheduler.step(validation_loss)
-
-        if validation_metrics[1] > best_validation_metric:
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(LOG_PATH, data_str)
-
-            best_validation_metric = validation_metrics[1]
-            torch.save(model.state_dict(), CHECKPOINT_PATH)
-            num_epochs_no_improvement = 0
-        elif validation_metrics[1] < best_validation_metric:
-            num_epochs_no_improvement += 1
-
-        end_time = time.time()
-        epoch_duration_min = int((end_time - start_time) / 60)
-        epoch_duration_sec = int((end_time - start_time) - (epoch_duration_min * 60))
-        epoch_log_text = f'Epoch {epoch+1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
-        epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
-        epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
-        print_and_save(LOG_PATH, epoch_log_text)
-
-        if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
-            break
+        test_loss, test_metrics = evaluate_step(model, test_dataloader, DiceBCELoss(), DEVICE)
+        test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n\n'
+        print_and_save(LOG_PATH, test_log_text)
