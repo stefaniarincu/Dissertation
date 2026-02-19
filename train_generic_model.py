@@ -26,7 +26,7 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 30,
+    'early_stopping_patience': 25,
     'dsm_weighting_mode': 2, # dataset specific models weighting - 0 for one hot, 1 for uniform weights, 2 for balanced weights
     'batch_ratios': {0: 4, 1: 4, 2: 8} # for balanced batch sampler, the number of samples from each dataset in a batch
 }
@@ -38,12 +38,12 @@ DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = '/home/dragos/disertation/results'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for student model checkpoint path and log path
-os.makedirs('/home/dragos/disertation/results/dataset_generic/weighted', exist_ok=True)
-CHECKPOINT_PATH = '/home/dragos/disertation/results/dataset_generic/weighted/dataset_generic_model.pth'
-LOG_PATH = '/home/dragos/disertation/results/dataset_generic/weighted/train_log_dataset_generic.txt'
+os.makedirs('/home/dragos/disertation/files/dataset_generic/weighted', exist_ok=True)
+CHECKPOINT_PATH = '/home/dragos/disertation/files/dataset_generic/weighted/dataset_generic_model.pth'
+LOG_PATH = '/home/dragos/disertation/files/dataset_generic/weighted/train_log_dataset_generic.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -880,7 +880,7 @@ if __name__ == '__main__':
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-        elif validation_metrics[1] < best_validation_metric:
+        else:
             num_epochs_no_improvement += 1
 
         end_time = time.time()

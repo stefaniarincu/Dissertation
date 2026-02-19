@@ -25,16 +25,16 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 30,
+    'early_stopping_patience': 25,
 }
 
 # Constants for dataset name and path
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
 # Constant for model checkpoint path and log path
-os.makedirs(f'/home/dragos/disertation/results/{DATASET_NAME}', exist_ok=True)
-CHECKPOINT_PATH = f'/home/dragos/disertation/results/{DATASET_NAME}/dataset_specific_model_{DATASET_NAME}.pth'
-LOG_PATH = f'/home/dragos/disertation/results/{DATASET_NAME}/train_log_{DATASET_NAME}.txt'
+os.makedirs(f'/home/dragos/disertation/files/{DATASET_NAME}', exist_ok=True)
+CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/dataset_specific_model_{DATASET_NAME}.pth'
+LOG_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/train_log_{DATASET_NAME}.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -709,7 +709,7 @@ if __name__ == '__main__':
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-        elif validation_metrics[1] < best_validation_metric:
+        else:
             num_epochs_no_improvement += 1
 
         end_time = time.time()

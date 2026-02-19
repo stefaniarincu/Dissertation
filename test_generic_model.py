@@ -32,8 +32,8 @@ DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for student model checkpoint path and log path
-CHECKPOINT_PATH = '/home/dragos/disertation/results/dataset_generic/weighted/dataset_generic_model.pth'
-LOG_PATH = '/home/dragos/disertation/results/dataset_generic/weighted/train_log_dataset_generic.txt'
+CHECKPOINT_PATH = '/home/dragos/disertation/files/dataset_generic/weighted/dataset_generic_model.pth'
+LOG_PATH = '/home/dragos/disertation/files/dataset_generic/weighted/train_log_dataset_generic.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
