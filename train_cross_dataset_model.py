@@ -41,9 +41,12 @@ DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) f
 DATASET_SPECIFIC_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for model checkpoint path and log path
-os.makedirs('/home/dragos/disertation/files/cross_dataset/biased', exist_ok=True)
-CHECKPOINT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/cross_dataset_model.pth'
-LOG_PATH = '/home/dragos/disertation/files/cross_dataset/biased/train_log_cross_dataset.txt'
+MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased'
+os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
+CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
+LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
+# Constant for resume checkpoint path if the training stops for whatever reason
+RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_last_resume.pth'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -116,6 +119,39 @@ def determine_weights_for_dataset_specific_models(param_dataset_ids, param_mode=
     elif param_mode == 2: # custom weights = > 0.5 for the dataset specific model corresponding to the dataset and 0.25 for the others
         weights = torch.full((param_dataset_ids.shape[0], param_num_dataset_specific_models), 0.25, device=param_dataset_ids.device, dtype=torch.float32)
         return weights.scatter_(1, param_dataset_ids.view(-1, 1), 0.5)
+
+def save_resume_checkpoint(param_model, param_epoch, param_optimizer, param_scheduler, param_best_validation_metric, param_num_epochs_no_improvement, param_path=RESUME_CHECKPOINT_PATH):
+    torch.save({
+        'model_state': param_model.state_dict(),
+        'epoch': param_epoch,
+        'optimizer_state': param_optimizer.state_dict(),
+        'scheduler_state': param_scheduler.state_dict(),
+        'best_validation_metric': param_best_validation_metric,
+        'num_epochs_no_improvement': param_num_epochs_no_improvement,
+        'rng_state': {
+            'python': random.getstate(),
+            'numpy': np.random.get_state(),
+            'torch': torch.get_rng_state(),
+            'cuda': torch.cuda.get_rng_state_all()
+        }
+    }, param_path)
+
+def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_path=RESUME_CHECKPOINT_PATH, param_device=DEVICE):
+    checkpoint = torch.load(param_path, map_location=param_device)
+    param_model.load_state_dict(checkpoint['model_state'])
+    param_optimizer.load_state_dict(checkpoint['optimizer_state'])
+    param_scheduler.load_state_dict(checkpoint['scheduler_state'])
+    best_validation_metric = checkpoint['best_validation_metric']
+    num_epochs_no_improvement = checkpoint['num_epochs_no_improvement']
+    epoch = checkpoint['epoch'] + 1
+
+    # Restore RNG states
+    random.setstate(checkpoint['rng_state']['python'])
+    np.random.set_state(checkpoint['rng_state']['numpy'])
+    torch.set_rng_state(checkpoint['rng_state']['torch'])
+    torch.cuda.set_rng_state_all(checkpoint['rng_state']['cuda'])
+
+    return epoch, best_validation_metric, num_epochs_no_improvement
 
 class BalancedBatchSampler(Sampler):
     def __init__(self, param_dataset_ids, param_batch_composition):
@@ -863,10 +899,15 @@ if __name__ == '__main__':
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
 
+    start_epoch = 0
     best_validation_metric = 0.0
     num_epochs_no_improvement = 0
 
-    for epoch in range(HYPERPARAMETERS['num_epochs']):
+    # If resume checkpoint exists, load it
+    if os.path.exists(RESUME_CHECKPOINT_PATH):
+        start_epoch, best_validation_metric, num_epochs_no_improvement = load_resume_checkpoint(model, optimizer, scheduler, RESUME_CHECKPOINT_PATH, DEVICE)
+
+    for epoch in range(start_epoch, HYPERPARAMETERS['num_epochs']):
         start_time = time.time()
         train_sampler.set_epoch(epoch)
 
@@ -887,7 +928,7 @@ if __name__ == '__main__':
         end_time = time.time()
         epoch_duration_min = int((end_time - start_time) / 60)
         epoch_duration_sec = int((end_time - start_time) - (epoch_duration_min * 60))
-        epoch_log_text = f'Epoch {epoch+1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
+        epoch_log_text = f'Epoch {epoch + 1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
         epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
         epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
         print_and_save(LOG_PATH, epoch_log_text)
@@ -895,3 +936,5 @@ if __name__ == '__main__':
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
             print_and_save(LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
             break
+
+        save_resume_checkpoint(model, epoch, optimizer, scheduler, best_validation_metric, num_epochs_no_improvement, RESUME_CHECKPOINT_PATH)

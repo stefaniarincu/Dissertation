@@ -27,8 +27,9 @@ HYPERPARAMETERS = {
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
 # Constant for model checkpoint path and log path
-CHECKPOINT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/dataset_specific_model_{DATASET_NAME}.pth'
-LOG_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}/test_log_{DATASET_NAME}.txt'
+MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}'
+CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
+LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
