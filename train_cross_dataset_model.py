@@ -131,13 +131,13 @@ def save_resume_checkpoint(param_model, param_epoch, param_optimizer, param_sche
         'rng_state': {
             'python': random.getstate(),
             'numpy': np.random.get_state(),
-            'torch': torch.get_rng_state(),
-            'cuda': torch.cuda.get_rng_state_all()
+            'torch': torch.get_rng_state().cpu(),
+            'cuda': [state.cpu() for state in torch.cuda.get_rng_state_all()]
         }
     }, param_path)
 
 def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_path=RESUME_CHECKPOINT_PATH, param_device=DEVICE):
-    checkpoint = torch.load(param_path, map_location=param_device)
+    checkpoint = torch.load(param_path, map_location=param_device, weights_only=False)
     param_model.load_state_dict(checkpoint['model_state'])
     param_optimizer.load_state_dict(checkpoint['optimizer_state'])
     param_scheduler.load_state_dict(checkpoint['scheduler_state'])
@@ -148,8 +148,22 @@ def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_
     # Restore RNG states
     random.setstate(checkpoint['rng_state']['python'])
     np.random.set_state(checkpoint['rng_state']['numpy'])
-    torch.set_rng_state(checkpoint['rng_state']['torch'])
-    torch.cuda.set_rng_state_all(checkpoint['rng_state']['cuda'])
+    torch_state = checkpoint['rng_state']['torch']
+    if not isinstance(torch_state, torch.Tensor):
+        torch_state = torch.tensor(torch_state, dtype=torch.uint8)
+    else:
+        torch_state = torch_state.to(dtype=torch.uint8)
+    torch.set_rng_state(torch_state.cpu())
+
+    cuda_states = checkpoint['rng_state']['cuda']
+    fixed_cuda_states = []
+    for state in cuda_states:
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state, dtype=torch.uint8)
+        else:
+            state = state.to(dtype=torch.uint8)
+        fixed_cuda_states.append(state.cpu())
+    torch.cuda.set_rng_state_all(fixed_cuda_states)
 
     return epoch, best_validation_metric, num_epochs_no_improvement
 
