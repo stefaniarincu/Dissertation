@@ -29,10 +29,10 @@ HYPERPARAMETERS = {
 }
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'bmshare', 'brats'
+DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/fine_tune/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/fine_tune/{DATASET_NAME}/test2'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -96,13 +96,13 @@ def load_pretrained_model(param_pretrained_checkpoint_path, param_device=DEVICE,
         freeze_module(layer)
 
     # Freeze the bottleneck blocks
-    for num_block in range(1, 3):
-        block = getattr(pretrained_model, f'b{num_block}')
-        freeze_module(block)
+    #for num_block in range(1, 3):
+    #    block = getattr(pretrained_model, f'b{num_block}')
+    #    freeze_module(block)
 
     trainable_params = sum(p.numel() for p in pretrained_model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in pretrained_model.parameters())
-    print_and_save(param_log_file_path, f"\nNumber of trainable parameters: {trainable_params}\n")
+    print_and_save(param_log_file_path, f"Number of trainable parameters: {trainable_params}")
     print_and_save(param_log_file_path, f"Total number of parameters: {total_params}\n")
 
     return pretrained_model
@@ -608,9 +608,9 @@ def calculate_metrics(y_true, y_pred):
 def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_device):
     param_model.train()
     for num_layer in range(4):
-        getattr(param_model, f'layer{num_layer}').apply(set_bn_eval)  
-    for num_block in range(1, 3):
-        getattr(param_model, f'b{num_block}').apply(set_bn_eval)
+        getattr(param_model, f'layer{num_layer}').eval() 
+    #for num_block in range(1, 3):
+    #    getattr(param_model, f'b{num_block}').eval()
       
     epoch_loss = 0.0
     epoch_jaccard = 0.0
