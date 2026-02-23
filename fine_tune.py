@@ -29,10 +29,10 @@ HYPERPARAMETERS = {
 }
 
 # Constants for dataset name and path
-DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
+DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/fine_tune/{DATASET_NAME}/test2'
+MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/fine_tune/{DATASET_NAME}/test1'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
