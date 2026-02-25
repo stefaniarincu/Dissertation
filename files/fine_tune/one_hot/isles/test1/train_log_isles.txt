@@ -1,0 +1,260 @@
+
+2026-02-25 18:51:17.439841
+Image size: (256, 256)
+Batch size: 16
+LR: 0.0005
+Epochs: 150
+Scheduler Patience: 5
+Early Stopping Patience: 25
+
+Dataset Size:
+Train: 12547
+Validation: 1568
+
+Number of trainable parameters: 19053729
+Total number of parameters: 27597025
+
+Valid F1 improved from 0.0000 to 0.7684. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 1 | Epoch Time: 1m 3s
+	Train Loss: 0.3570 - Jaccard: 0.7897 - Dice (F1): 0.8106 - Recall: 0.8500 - Precision: 0.9261
+	Validation Loss: 0.4360 - Jaccard: 0.7330 - Dice (F1): 0.7684 - Recall: 0.8378 - Precision: 0.8746
+
+Valid F1 improved from 0.7684 to 0.7894. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 2 | Epoch Time: 1m 2s
+	Train Loss: 0.3425 - Jaccard: 0.7876 - Dice (F1): 0.8098 - Recall: 0.8571 - Precision: 0.9140
+	Validation Loss: 0.4112 - Jaccard: 0.7522 - Dice (F1): 0.7894 - Recall: 0.8564 - Precision: 0.8789
+
+Valid F1 improved from 0.7894 to 0.7998. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 3 | Epoch Time: 1m 2s
+	Train Loss: 0.3136 - Jaccard: 0.8062 - Dice (F1): 0.8286 - Recall: 0.8625 - Precision: 0.9280
+	Validation Loss: 0.3624 - Jaccard: 0.7638 - Dice (F1): 0.7998 - Recall: 0.8332 - Precision: 0.9156
+
+Epoch 4 | Epoch Time: 1m 2s
+	Train Loss: 0.3012 - Jaccard: 0.8068 - Dice (F1): 0.8297 - Recall: 0.8664 - Precision: 0.9258
+	Validation Loss: 0.4184 - Jaccard: 0.7471 - Dice (F1): 0.7852 - Recall: 0.8513 - Precision: 0.8758
+
+Valid F1 improved from 0.7998 to 0.8157. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 5 | Epoch Time: 1m 2s
+	Train Loss: 0.3080 - Jaccard: 0.8135 - Dice (F1): 0.8355 - Recall: 0.8641 - Precision: 0.9363
+	Validation Loss: 0.3682 - Jaccard: 0.7783 - Dice (F1): 0.8157 - Recall: 0.8667 - Precision: 0.8937
+
+Valid F1 improved from 0.8157 to 0.8231. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 6 | Epoch Time: 1m 2s
+	Train Loss: 0.3178 - Jaccard: 0.7917 - Dice (F1): 0.8156 - Recall: 0.8714 - Precision: 0.9047
+	Validation Loss: 0.2904 - Jaccard: 0.7881 - Dice (F1): 0.8231 - Recall: 0.8363 - Precision: 0.9403
+
+Epoch 7 | Epoch Time: 1m 2s
+	Train Loss: 0.2973 - Jaccard: 0.8174 - Dice (F1): 0.8402 - Recall: 0.8690 - Precision: 0.9359
+	Validation Loss: 0.2909 - Jaccard: 0.7867 - Dice (F1): 0.8193 - Recall: 0.8352 - Precision: 0.9409
+
+Epoch 8 | Epoch Time: 1m 2s
+	Train Loss: 0.2902 - Jaccard: 0.8105 - Dice (F1): 0.8340 - Recall: 0.8711 - Precision: 0.9249
+	Validation Loss: 0.3041 - Jaccard: 0.7833 - Dice (F1): 0.8203 - Recall: 0.8687 - Precision: 0.9022
+
+Epoch 9 | Epoch Time: 1m 2s
+	Train Loss: 0.2841 - Jaccard: 0.8156 - Dice (F1): 0.8387 - Recall: 0.8733 - Precision: 0.9283
+	Validation Loss: 0.3459 - Jaccard: 0.7751 - Dice (F1): 0.8090 - Recall: 0.8471 - Precision: 0.9193
+
+Epoch 10 | Epoch Time: 1m 2s
+	Train Loss: 0.2802 - Jaccard: 0.8202 - Dice (F1): 0.8433 - Recall: 0.8755 - Precision: 0.9305
+	Validation Loss: 0.3866 - Jaccard: 0.7713 - Dice (F1): 0.8098 - Recall: 0.8799 - Precision: 0.8748
+
+Valid F1 improved from 0.8231 to 0.8335. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 11 | Epoch Time: 1m 2s
+	Train Loss: 0.2792 - Jaccard: 0.8264 - Dice (F1): 0.8488 - Recall: 0.8704 - Precision: 0.9439
+	Validation Loss: 0.2669 - Jaccard: 0.8001 - Dice (F1): 0.8335 - Recall: 0.8495 - Precision: 0.9426
+
+Epoch 12 | Epoch Time: 1m 2s
+	Train Loss: 0.2857 - Jaccard: 0.8094 - Dice (F1): 0.8328 - Recall: 0.8751 - Precision: 0.9197
+	Validation Loss: 0.2766 - Jaccard: 0.7875 - Dice (F1): 0.8202 - Recall: 0.8278 - Precision: 0.9513
+
+Epoch 13 | Epoch Time: 1m 2s
+	Train Loss: 0.2727 - Jaccard: 0.8188 - Dice (F1): 0.8426 - Recall: 0.8792 - Precision: 0.9266
+	Validation Loss: 0.3053 - Jaccard: 0.7861 - Dice (F1): 0.8204 - Recall: 0.8610 - Precision: 0.9145
+
+Epoch 14 | Epoch Time: 1m 2s
+	Train Loss: 0.2746 - Jaccard: 0.8222 - Dice (F1): 0.8458 - Recall: 0.8790 - Precision: 0.9301
+	Validation Loss: 0.3455 - Jaccard: 0.7853 - Dice (F1): 0.8208 - Recall: 0.8661 - Precision: 0.9076
+
+Epoch 15 | Epoch Time: 1m 2s
+	Train Loss: 0.2597 - Jaccard: 0.8323 - Dice (F1): 0.8550 - Recall: 0.8734 - Precision: 0.9477
+	Validation Loss: 0.2739 - Jaccard: 0.7928 - Dice (F1): 0.8259 - Recall: 0.8514 - Precision: 0.9313
+
+Epoch 16 | Epoch Time: 1m 2s
+	Train Loss: 0.2662 - Jaccard: 0.8221 - Dice (F1): 0.8449 - Recall: 0.8780 - Precision: 0.9303
+	Validation Loss: 0.3696 - Jaccard: 0.7805 - Dice (F1): 0.8176 - Recall: 0.8751 - Precision: 0.8931
+
+Epoch 17 | Epoch Time: 1m 2s
+	Train Loss: 0.2564 - Jaccard: 0.8307 - Dice (F1): 0.8535 - Recall: 0.8772 - Precision: 0.9407
+	Validation Loss: 0.2973 - Jaccard: 0.7958 - Dice (F1): 0.8284 - Recall: 0.8437 - Precision: 0.9435
+
+Epoch 18 | Epoch Time: 1m 2s
+	Train Loss: 0.2524 - Jaccard: 0.8387 - Dice (F1): 0.8612 - Recall: 0.8792 - Precision: 0.9478
+	Validation Loss: 0.2916 - Jaccard: 0.7971 - Dice (F1): 0.8304 - Recall: 0.8570 - Precision: 0.9316
+
+Epoch 19 | Epoch Time: 1m 2s
+	Train Loss: 0.2520 - Jaccard: 0.8384 - Dice (F1): 0.8614 - Recall: 0.8851 - Precision: 0.9406
+	Validation Loss: 0.3541 - Jaccard: 0.7889 - Dice (F1): 0.8238 - Recall: 0.8723 - Precision: 0.9041
+
+Epoch 20 | Epoch Time: 1m 2s
+	Train Loss: 0.2433 - Jaccard: 0.8430 - Dice (F1): 0.8657 - Recall: 0.8821 - Precision: 0.9502
+	Validation Loss: 0.3327 - Jaccard: 0.7932 - Dice (F1): 0.8280 - Recall: 0.8710 - Precision: 0.9110
+
+Valid F1 improved from 0.8335 to 0.8348. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 21 | Epoch Time: 1m 2s
+	Train Loss: 0.2380 - Jaccard: 0.8412 - Dice (F1): 0.8644 - Recall: 0.8870 - Precision: 0.9428
+	Validation Loss: 0.3045 - Jaccard: 0.8002 - Dice (F1): 0.8348 - Recall: 0.8673 - Precision: 0.9245
+
+Epoch 22 | Epoch Time: 1m 2s
+	Train Loss: 0.2435 - Jaccard: 0.8382 - Dice (F1): 0.8618 - Recall: 0.8907 - Precision: 0.9344
+	Validation Loss: 0.3305 - Jaccard: 0.7948 - Dice (F1): 0.8301 - Recall: 0.8774 - Precision: 0.9066
+
+Epoch 23 | Epoch Time: 1m 2s
+	Train Loss: 0.2350 - Jaccard: 0.8401 - Dice (F1): 0.8639 - Recall: 0.8930 - Precision: 0.9348
+	Validation Loss: 0.3308 - Jaccard: 0.7919 - Dice (F1): 0.8279 - Recall: 0.8793 - Precision: 0.9019
+
+Epoch 24 | Epoch Time: 1m 2s
+	Train Loss: 0.2231 - Jaccard: 0.8398 - Dice (F1): 0.8637 - Recall: 0.8931 - Precision: 0.9341
+	Validation Loss: 0.3184 - Jaccard: 0.7985 - Dice (F1): 0.8341 - Recall: 0.8753 - Precision: 0.9133
+
+Valid F1 improved from 0.8348 to 0.8350. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 25 | Epoch Time: 1m 2s
+	Train Loss: 0.2265 - Jaccard: 0.8427 - Dice (F1): 0.8663 - Recall: 0.8926 - Precision: 0.9367
+	Validation Loss: 0.3180 - Jaccard: 0.7995 - Dice (F1): 0.8350 - Recall: 0.8768 - Precision: 0.9128
+
+Epoch 26 | Epoch Time: 1m 2s
+	Train Loss: 0.2362 - Jaccard: 0.8437 - Dice (F1): 0.8673 - Recall: 0.8931 - Precision: 0.9378
+	Validation Loss: 0.3174 - Jaccard: 0.7982 - Dice (F1): 0.8336 - Recall: 0.8763 - Precision: 0.9112
+
+Epoch 27 | Epoch Time: 1m 2s
+	Train Loss: 0.2284 - Jaccard: 0.8418 - Dice (F1): 0.8655 - Recall: 0.8917 - Precision: 0.9369
+	Validation Loss: 0.3195 - Jaccard: 0.7987 - Dice (F1): 0.8342 - Recall: 0.8764 - Precision: 0.9117
+
+Epoch 28 | Epoch Time: 1m 2s
+	Train Loss: 0.2263 - Jaccard: 0.8418 - Dice (F1): 0.8655 - Recall: 0.8927 - Precision: 0.9363
+	Validation Loss: 0.3213 - Jaccard: 0.7983 - Dice (F1): 0.8337 - Recall: 0.8764 - Precision: 0.9112
+
+Epoch 29 | Epoch Time: 1m 2s
+	Train Loss: 0.2267 - Jaccard: 0.8447 - Dice (F1): 0.8686 - Recall: 0.8927 - Precision: 0.9394
+	Validation Loss: 0.3172 - Jaccard: 0.7986 - Dice (F1): 0.8341 - Recall: 0.8771 - Precision: 0.9112
+
+Epoch 30 | Epoch Time: 1m 2s
+	Train Loss: 0.2263 - Jaccard: 0.8441 - Dice (F1): 0.8676 - Recall: 0.8931 - Precision: 0.9390
+	Validation Loss: 0.3163 - Jaccard: 0.7993 - Dice (F1): 0.8347 - Recall: 0.8765 - Precision: 0.9125
+
+Valid F1 improved from 0.8350 to 0.8352. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 31 | Epoch Time: 1m 2s
+	Train Loss: 0.2284 - Jaccard: 0.8429 - Dice (F1): 0.8663 - Recall: 0.8909 - Precision: 0.9399
+	Validation Loss: 0.3178 - Jaccard: 0.7997 - Dice (F1): 0.8352 - Recall: 0.8785 - Precision: 0.9105
+
+Valid F1 improved from 0.8352 to 0.8364. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 32 | Epoch Time: 1m 2s
+	Train Loss: 0.2217 - Jaccard: 0.8427 - Dice (F1): 0.8667 - Recall: 0.8935 - Precision: 0.9368
+	Validation Loss: 0.3115 - Jaccard: 0.8010 - Dice (F1): 0.8364 - Recall: 0.8757 - Precision: 0.9150
+
+Valid F1 improved from 0.8364 to 0.8377. Saving checkpoint: /home/dragos/disertation/files/fine_tune/one_hot/isles/test1/fine_tuned_isles.pth
+Epoch 33 | Epoch Time: 1m 2s
+	Train Loss: 0.2207 - Jaccard: 0.8448 - Dice (F1): 0.8687 - Recall: 0.8923 - Precision: 0.9409
+	Validation Loss: 0.3030 - Jaccard: 0.8024 - Dice (F1): 0.8377 - Recall: 0.8748 - Precision: 0.9174
+
+Epoch 34 | Epoch Time: 1m 2s
+	Train Loss: 0.2288 - Jaccard: 0.8436 - Dice (F1): 0.8672 - Recall: 0.8929 - Precision: 0.9384
+	Validation Loss: 0.3164 - Jaccard: 0.7998 - Dice (F1): 0.8351 - Recall: 0.8785 - Precision: 0.9111
+
+Epoch 35 | Epoch Time: 1m 2s
+	Train Loss: 0.2309 - Jaccard: 0.8444 - Dice (F1): 0.8679 - Recall: 0.8924 - Precision: 0.9398
+	Validation Loss: 0.3190 - Jaccard: 0.7982 - Dice (F1): 0.8338 - Recall: 0.8784 - Precision: 0.9093
+
+Epoch 36 | Epoch Time: 1m 2s
+	Train Loss: 0.2274 - Jaccard: 0.8436 - Dice (F1): 0.8673 - Recall: 0.8931 - Precision: 0.9377
+	Validation Loss: 0.3115 - Jaccard: 0.8007 - Dice (F1): 0.8360 - Recall: 0.8764 - Precision: 0.9140
+
+Epoch 37 | Epoch Time: 1m 2s
+	Train Loss: 0.2296 - Jaccard: 0.8431 - Dice (F1): 0.8666 - Recall: 0.8926 - Precision: 0.9382
+	Validation Loss: 0.3157 - Jaccard: 0.7995 - Dice (F1): 0.8350 - Recall: 0.8782 - Precision: 0.9111
+
+Epoch 38 | Epoch Time: 1m 2s
+	Train Loss: 0.2224 - Jaccard: 0.8450 - Dice (F1): 0.8687 - Recall: 0.8930 - Precision: 0.9407
+	Validation Loss: 0.3139 - Jaccard: 0.7988 - Dice (F1): 0.8344 - Recall: 0.8768 - Precision: 0.9118
+
+Epoch 39 | Epoch Time: 1m 2s
+	Train Loss: 0.2287 - Jaccard: 0.8441 - Dice (F1): 0.8676 - Recall: 0.8928 - Precision: 0.9387
+	Validation Loss: 0.3161 - Jaccard: 0.7992 - Dice (F1): 0.8347 - Recall: 0.8780 - Precision: 0.9110
+
+Epoch 40 | Epoch Time: 1m 2s
+	Train Loss: 0.2302 - Jaccard: 0.8453 - Dice (F1): 0.8690 - Recall: 0.8928 - Precision: 0.9406
+	Validation Loss: 0.3082 - Jaccard: 0.8002 - Dice (F1): 0.8356 - Recall: 0.8751 - Precision: 0.9148
+
+Epoch 41 | Epoch Time: 1m 2s
+	Train Loss: 0.2331 - Jaccard: 0.8442 - Dice (F1): 0.8676 - Recall: 0.8924 - Precision: 0.9394
+	Validation Loss: 0.3148 - Jaccard: 0.8000 - Dice (F1): 0.8355 - Recall: 0.8766 - Precision: 0.9131
+
+Epoch 42 | Epoch Time: 1m 2s
+	Train Loss: 0.2212 - Jaccard: 0.8449 - Dice (F1): 0.8687 - Recall: 0.8936 - Precision: 0.9387
+	Validation Loss: 0.3120 - Jaccard: 0.8008 - Dice (F1): 0.8362 - Recall: 0.8765 - Precision: 0.9139
+
+Epoch 43 | Epoch Time: 1m 2s
+	Train Loss: 0.2341 - Jaccard: 0.8435 - Dice (F1): 0.8671 - Recall: 0.8934 - Precision: 0.9382
+	Validation Loss: 0.3201 - Jaccard: 0.7989 - Dice (F1): 0.8345 - Recall: 0.8786 - Precision: 0.9101
+
+Epoch 44 | Epoch Time: 1m 2s
+	Train Loss: 0.2379 - Jaccard: 0.8442 - Dice (F1): 0.8679 - Recall: 0.8926 - Precision: 0.9390
+	Validation Loss: 0.3094 - Jaccard: 0.8009 - Dice (F1): 0.8363 - Recall: 0.8758 - Precision: 0.9149
+
+Epoch 45 | Epoch Time: 1m 2s
+	Train Loss: 0.2251 - Jaccard: 0.8433 - Dice (F1): 0.8668 - Recall: 0.8934 - Precision: 0.9383
+	Validation Loss: 0.3184 - Jaccard: 0.7992 - Dice (F1): 0.8345 - Recall: 0.8777 - Precision: 0.9110
+
+Epoch 46 | Epoch Time: 1m 2s
+	Train Loss: 0.2328 - Jaccard: 0.8446 - Dice (F1): 0.8683 - Recall: 0.8920 - Precision: 0.9407
+	Validation Loss: 0.3129 - Jaccard: 0.8011 - Dice (F1): 0.8366 - Recall: 0.8760 - Precision: 0.9147
+
+Epoch 47 | Epoch Time: 1m 2s
+	Train Loss: 0.2199 - Jaccard: 0.8436 - Dice (F1): 0.8670 - Recall: 0.8922 - Precision: 0.9395
+	Validation Loss: 0.3102 - Jaccard: 0.8002 - Dice (F1): 0.8353 - Recall: 0.8759 - Precision: 0.9141
+
+Epoch 48 | Epoch Time: 1m 2s
+	Train Loss: 0.2336 - Jaccard: 0.8448 - Dice (F1): 0.8687 - Recall: 0.8942 - Precision: 0.9382
+	Validation Loss: 0.3101 - Jaccard: 0.8003 - Dice (F1): 0.8357 - Recall: 0.8758 - Precision: 0.9142
+
+Epoch 49 | Epoch Time: 1m 2s
+	Train Loss: 0.2229 - Jaccard: 0.8439 - Dice (F1): 0.8677 - Recall: 0.8937 - Precision: 0.9384
+	Validation Loss: 0.3178 - Jaccard: 0.7992 - Dice (F1): 0.8347 - Recall: 0.8778 - Precision: 0.9112
+
+Epoch 50 | Epoch Time: 1m 2s
+	Train Loss: 0.2405 - Jaccard: 0.8431 - Dice (F1): 0.8667 - Recall: 0.8915 - Precision: 0.9395
+	Validation Loss: 0.3122 - Jaccard: 0.8007 - Dice (F1): 0.8362 - Recall: 0.8762 - Precision: 0.9142
+
+Epoch 51 | Epoch Time: 1m 2s
+	Train Loss: 0.2226 - Jaccard: 0.8424 - Dice (F1): 0.8661 - Recall: 0.8930 - Precision: 0.9375
+	Validation Loss: 0.3139 - Jaccard: 0.8006 - Dice (F1): 0.8361 - Recall: 0.8767 - Precision: 0.9135
+
+Epoch 52 | Epoch Time: 1m 2s
+	Train Loss: 0.2257 - Jaccard: 0.8410 - Dice (F1): 0.8646 - Recall: 0.8920 - Precision: 0.9375
+	Validation Loss: 0.3148 - Jaccard: 0.7992 - Dice (F1): 0.8346 - Recall: 0.8771 - Precision: 0.9119
+
+Epoch 53 | Epoch Time: 1m 2s
+	Train Loss: 0.2244 - Jaccard: 0.8440 - Dice (F1): 0.8675 - Recall: 0.8926 - Precision: 0.9393
+	Validation Loss: 0.3117 - Jaccard: 0.8003 - Dice (F1): 0.8358 - Recall: 0.8760 - Precision: 0.9140
+
+Epoch 54 | Epoch Time: 1m 2s
+	Train Loss: 0.2322 - Jaccard: 0.8434 - Dice (F1): 0.8671 - Recall: 0.8924 - Precision: 0.9384
+	Validation Loss: 0.3118 - Jaccard: 0.7999 - Dice (F1): 0.8354 - Recall: 0.8763 - Precision: 0.9133
+
+Epoch 55 | Epoch Time: 1m 2s
+	Train Loss: 0.2315 - Jaccard: 0.8439 - Dice (F1): 0.8674 - Recall: 0.8925 - Precision: 0.9394
+	Validation Loss: 0.3153 - Jaccard: 0.7987 - Dice (F1): 0.8342 - Recall: 0.8774 - Precision: 0.9110
+
+Epoch 56 | Epoch Time: 1m 2s
+	Train Loss: 0.2293 - Jaccard: 0.8437 - Dice (F1): 0.8672 - Recall: 0.8920 - Precision: 0.9393
+	Validation Loss: 0.3099 - Jaccard: 0.8012 - Dice (F1): 0.8366 - Recall: 0.8764 - Precision: 0.9145
+
+Epoch 57 | Epoch Time: 1m 2s
+	Train Loss: 0.2448 - Jaccard: 0.8436 - Dice (F1): 0.8671 - Recall: 0.8924 - Precision: 0.9393
+	Validation Loss: 0.3102 - Jaccard: 0.8006 - Dice (F1): 0.8360 - Recall: 0.8753 - Precision: 0.9151
+
+Epoch 58 | Epoch Time: 1m 2s
+	Train Loss: 0.2256 - Jaccard: 0.8444 - Dice (F1): 0.8680 - Recall: 0.8937 - Precision: 0.9386
+	Validation Loss: 0.3122 - Jaccard: 0.8013 - Dice (F1): 0.8367 - Recall: 0.8765 - Precision: 0.9144
+
+Early stopping triggered after 58 epochs.
