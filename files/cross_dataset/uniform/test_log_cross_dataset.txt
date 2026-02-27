@@ -1,0 +1,20 @@
+
+2026-02-27 13:56:53.723660
+isles dataset path: /home/dragos/disertation/datasets/isles
+Test set size: 1569
+
+Test Loss: 0.3190 - Jaccard: 0.8181 - Dice (F1): 0.8507 - Recall: 0.8570 - Precision: 0.9530
+
+
+bmshare dataset path: /home/dragos/disertation/datasets/bmshare
+Test set size: 1895
+
+Test Loss: 0.4252 - Jaccard: 0.8185 - Dice (F1): 0.8380 - Recall: 0.8559 - Precision: 0.9419
+
+
+brats dataset path: /home/dragos/disertation/datasets/brats
+Test set size: 5735
+
+Test Loss: 0.2312 - Jaccard: 0.8714 - Dice (F1): 0.8996 - Recall: 0.9340 - Precision: 0.9305
+
+
