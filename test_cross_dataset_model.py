@@ -31,7 +31,7 @@ DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for student model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased'
+MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/s2_s3_features'
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_cross_dataset.txt'
 

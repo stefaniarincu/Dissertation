@@ -41,7 +41,7 @@ DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) f
 DATASET_SPECIFIC_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased'
+MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/s2_s3_features'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -632,7 +632,7 @@ class TResUnet(nn.Module):
         s3 = self.layer2(s2)
         #s4 = self.layer3(s3)
 
-        return [s1, s2, s3]
+        return [s2, s3]#[s1, s2, s3]
 
     def forward(self, x, return_feature_maps=False, heatmap=None):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
@@ -652,7 +652,7 @@ class TResUnet(nn.Module):
         y = self.output(d4)
 
         if return_feature_maps:
-            feature_maps = [s1, s2, s3]
+            feature_maps = [s2, s3] #[s1, s2, s3]
 
         if heatmap is not None:
             hmap = save_feats_mean(d4)
