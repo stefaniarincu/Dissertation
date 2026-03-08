@@ -29,8 +29,9 @@ HYPERPARAMETERS = {
     'early_stopping_patience': 25,
     'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
     'batch_composition': {0: 4, 1: 4, 2: 8}, # for balanced batch sampler, the number of samples from each dataset in a batch
-    'gamma': 0.3, # weight for mse loss
-    'delta': 0.05, # weight for cosine similarity loss
+    'alpha': 0.5, # weight for segmentation loss
+    'gamma': 2.0, # weight for mse loss
+    'delta': 1.0, # weight for cosine similarity loss
 }
 
 # Dictionary that maps dataset names to an id
@@ -43,7 +44,7 @@ DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) f
 DATASET_SPECIFIC_MODELS_ROOT_PATH = '/root/Disertation/files'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/root/Disertation/files/cross_dataset/biased/new_loss'
+MODELS_AND_LOG_ROOT_PATH = '/root/Disertation/files/cross_dataset/biased/new_loss_v3'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -661,8 +662,9 @@ class DiceBCELoss(nn.Module):
         return bce_loss + dice_loss
         
 class TotalLoss(nn.Module):
-    def __init__(self, param_gamma, param_delta):
+    def __init__(self, param_alpha, param_gamma, param_delta):
         super().__init__()
+        self.alpha = param_alpha
         self.gamma = param_gamma
         self.delta = param_delta
 
@@ -706,17 +708,17 @@ class TotalLoss(nn.Module):
             mse_loss += mse_per_sample_loss.mean()
             cosine_loss += cosine_per_sample_loss.mean()
 
-        mse_loss /= len(param_cross_dataset_features)
-        cosine_loss /= len(param_cross_dataset_features)
+        #mse_loss /= len(param_cross_dataset_features)
+        #cosine_loss /= len(param_cross_dataset_features)
 
-        total_loss = segmentation_loss + self.gamma * mse_loss + self.delta * cosine_loss
-        logs = {
+        total_loss = self.alpha * segmentation_loss + self.gamma * mse_loss + self.delta * cosine_loss
+        '''logs = {
             'segmentation_loss': segmentation_loss.item(),
             'mse_loss': mse_loss.item(),
             'cosine_loss': cosine_loss.item(),
             'total_loss': total_loss.item()
         }
-        print(logs)
+        print(logs)'''
         return total_loss
         
 def calculate_metrics(y_true, y_pred):
@@ -761,10 +763,23 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         # Pass the batch to each dataset specific model and collect the feature maps
         with torch.no_grad():
             num_dataset_specific_models = len(param_dataset_specific_models)
-            dataset_specific_features_by_dataset_id = [None] * num_dataset_specific_models
-            for dataset_id, dataset_specific_model in param_dataset_specific_models.items():
-                dataset_specific_features_by_dataset_id[dataset_id] = dataset_specific_model.encode(batched_images)
-            
+
+            if param_weighting_mode == 0:
+                dataset_specific_features_by_dataset_id = [[torch.empty_like(feature) for feature in cross_dataset_features] for _ in range(num_dataset_specific_models)]
+                
+                for dataset_id, dataset_specific_model in param_dataset_specific_models.items():
+                    samples_from_dataset = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
+                    selected_images = batched_images[samples_from_dataset]
+                    dataset_specific_features = dataset_specific_model.encode(selected_images)
+
+                    for encoder_block_index in range(len(cross_dataset_features)):
+                        dataset_specific_features_by_dataset_id[dataset_id][encoder_block_index][samples_from_dataset] = dataset_specific_features[encoder_block_index]
+            else:
+                dataset_specific_features_by_dataset_id = [None] * num_dataset_specific_models
+                
+                for dataset_id, dataset_specific_model in param_dataset_specific_models.items():
+                    dataset_specific_features_by_dataset_id[dataset_id] = dataset_specific_model.encode(batched_images)
+                
             dataset_specific_models_weights = determine_weights_for_dataset_specific_models(batched_dataset_ids, param_weighting_mode, num_dataset_specific_models)
 
         total_loss = param_criterion(cross_dataset_predictions, batched_masks, cross_dataset_features, dataset_specific_features_by_dataset_id, dataset_specific_models_weights)
@@ -852,7 +867,7 @@ if __name__ == '__main__':
     hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\n'
     hyperparameters_log_text += f'Epochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
     hyperparameters_log_text += f'Weighting mode: {HYPERPARAMETERS["dsm_weight_mode"]}\nBatch composition: {HYPERPARAMETERS["batch_composition"]}\n'
-    hyperparameters_log_text += f'Loss Weights: Gamma: {HYPERPARAMETERS["gamma"]} - Delta: {HYPERPARAMETERS["delta"]}\n'
+    hyperparameters_log_text += f'Loss Weights: Alpha: {HYPERPARAMETERS["alpha"]}, Gamma: {HYPERPARAMETERS["gamma"]}, Delta: {HYPERPARAMETERS["delta"]}\n'
     print_and_save(LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation
@@ -887,7 +902,7 @@ if __name__ == '__main__':
     model = TResUnet().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
-    training_loss_function = TotalLoss(HYPERPARAMETERS['gamma'], HYPERPARAMETERS['delta'])
+    training_loss_function = TotalLoss(HYPERPARAMETERS['alpha'], HYPERPARAMETERS['gamma'], HYPERPARAMETERS['delta'])
     dice_bce_loss_function = DiceBCELoss()
 
     start_epoch = 0
