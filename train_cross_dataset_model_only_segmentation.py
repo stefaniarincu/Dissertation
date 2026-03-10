@@ -10,7 +10,6 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, Sampler
 from torch.hub import load_state_dict_from_url
 import torch.nn.functional as F
-from sklearn.metrics import accuracy_score
 import albumentations as A
 
 # Set a fixed seed value
@@ -32,13 +31,10 @@ HYPERPARAMETERS = {
 DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 
 # Constants for dataset paths
-DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
+DATASETS_ROOT_PATH = '/root/Disertation/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
-# Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
-DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/s2_s3_features'
+MODELS_AND_LOG_ROOT_PATH = '/root/Disertation/files/cross_dataset/only_segmentation'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -622,14 +618,6 @@ class TResUnet(nn.Module):
         self.d4 = DecoderBlock([64, 3], 32)
 
         self.output = nn.Conv2d(32, 1, kernel_size=1)
-
-    def encode(self, x):
-        s1 = self.layer0(x)
-        s2 = self.layer1(s1)
-        s3 = self.layer2(s2)
-        #s4 = self.layer3(s3)
-
-        return [s2, s3]#[s1, s2, s3]
 
     def forward(self, x):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
