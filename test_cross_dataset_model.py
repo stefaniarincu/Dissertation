@@ -3,16 +3,12 @@ import random
 import datetime
 import numpy as np
 import cv2 as cv
-from sklearn.utils import shuffle
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, Sampler
+from torch.utils.data import Dataset, DataLoader
 from torch.hub import load_state_dict_from_url
 import torch.nn.functional as F
-from sklearn.metrics import accuracy_score
-import albumentations as A
 
-cv.setNumThreads(0)
 # Set a fixed seed value
 SEED = 42
 # Set the device to cuda
@@ -51,18 +47,17 @@ def print_and_save(param_file_path, param_text):
         file.write(param_text)
         file.write('\n')
 
-# Function that loads all file names for images and masks in the dataset
-def load_split_specific_file_names(param_dataset_path, param_split_file):
-    file_names = open(param_split_file, 'r').read().split('\n')[:-1]
-    images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
-    masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
+# Function that loads all file names for images and masks in a dataset
+def load_split_filenames(param_dataset_path, param_split_file):
+    filenames = open(param_split_file, 'r').read().split('\n')[:-1]
+    images = [os.path.join(param_dataset_path, 'images', name) for name in filenames]
+    masks = [os.path.join(param_dataset_path, 'masks', name) for name in filenames]
     return images, masks
 
-# Function that loads training and validation data from specified dataset path
 # Function that loads test data from specified dataset path
-def load_data(param_dataset_path):
+def load_test_data(param_dataset_path):
     test_split_file = os.path.join(param_dataset_path, 'test.txt')
-    test_images_path, test_masks_path = load_split_specific_file_names(param_dataset_path, test_split_file)
+    test_images_path, test_masks_path = load_split_filenames(param_dataset_path, test_split_file)
     return (test_images_path, test_masks_path)
 
 # Segmentation Dataset class for loading images and masks
@@ -81,13 +76,16 @@ class SegmentationDataset(Dataset):
         image = cv.imread(self.images_path[param_index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_path[param_index], cv.IMREAD_GRAYSCALE)
 
-        image = cv.resize(image, self.size)
-        image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
+        image = cv.resize(image, self.size, interpolation=cv.INTER_LINEAR)
+        image = torch.from_numpy(image).permute(2, 0, 1).float()
+        image.div_(255.0)
 
-        mask = cv.resize(mask, self.size)
-        mask = torch.from_numpy(mask).unsqueeze(0).float() / 255.0
+        mask = cv.resize(mask, self.size, interpolation=cv.INTER_NEAREST)
+        mask = (mask > 127).astype(np.float32)
+        mask = torch.from_numpy(mask).unsqueeze(0)
 
         return image, mask
+
 
 # RESNET BACKBONE
 model_urls = {
@@ -304,20 +302,6 @@ def resnet50(pretrained=True, progress=True, **kwargs):
 
 
 # TResUnet model
-def save_feats_mean(x):
-    _, _, h, _ = x.shape
-    if h == 256:
-        with torch.no_grad():
-            x = x.detach().cpu().numpy()
-            x = np.transpose(x[0], (1, 2, 0))
-            x = np.mean(x, axis=-1)
-            x = x/np.max(x)
-            x = x * 255.0
-            x = x.astype(np.uint8)
-            x = cv.applyColorMap(x, cv.COLORMAP_JET)
-            x = np.array(x, dtype=np.uint8)
-            return x
-
 class ResidualBlock(nn.Module):
     def __init__(self, in_c, out_c):
         super().__init__()
@@ -462,15 +446,7 @@ class TResUnet(nn.Module):
 
         self.output = nn.Conv2d(32, 1, kernel_size=1)
 
-    def encode(self, x):
-        s1 = self.layer0(x)
-        s2 = self.layer1(s1)
-        s3 = self.layer2(s2)
-        #s4 = self.layer3(s3)
-
-        return [s1, s2, s3]
-
-    def forward(self, x, return_feature_maps=False, heatmap=None):
+    def forward(self, x):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
         s3 = self.layer2(s2)    ## [-1, 512, h/8, w/8]
@@ -485,69 +461,36 @@ class TResUnet(nn.Module):
         d3 = self.d3(d2, s1)
         d4 = self.d4(d3, x)
 
-        y = self.output(d4)
+        return self.output(d4)
 
-        if return_feature_maps:
-            feature_maps = [s1, s2, s3]
-
-        if heatmap is not None:
-            hmap = save_feats_mean(d4)
-            if return_feature_maps:
-                return hmap, y, feature_maps
-            return hmap, y
-        else:
-            if return_feature_maps:
-                return y, feature_maps
-            return y
 
 class DiceBCELoss(nn.Module):
-    def __init__(self, weight=None, size_average=True):
-        super(DiceBCELoss, self).__init__()
-        self.BCE = nn.BCEWithLogitsLoss()
+    def __init__(self):
+        super().__init__()
 
     def forward(self, inputs, targets, smooth=1):
-        bce_loss = self.BCE(inputs, targets)
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
+        
         inputs = torch.sigmoid(inputs)
-
         inputs = inputs.view(-1)
         targets = targets.view(-1)
 
         intersection = (inputs * targets).sum()
-        dice_loss = 1.0 - (2.*intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
+        dice_loss = 1.0 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
         return bce_loss + dice_loss
-
-def precision(y_true, y_pred):
-    intersection = (y_true * y_pred).sum()
-    return (intersection + 1e-15) / (y_pred.sum() + 1e-15)
-
-def recall(y_true, y_pred):
-    intersection = (y_true * y_pred).sum()
-    return (intersection + 1e-15) / (y_true.sum() + 1e-15)
-
-def F2(y_true, y_pred, beta=2):
-    p = precision(y_true, y_pred)
-    r = recall(y_true, y_pred)
-    return (1 + beta**2.) * (p*r) / float(beta**2 * p + r + 1e-15)
-
-def dice_score(y_true, y_pred):
-    return (2 * (y_true * y_pred).sum() + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
-
-def jac_score(y_true, y_pred):
-    intersection = (y_true * y_pred).sum()
-    union = y_true.sum() + y_pred.sum() - intersection
-    return (intersection + 1e-15) / (union + 1e-15)
         
+
 def calculate_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
+    
+    y_pred = torch.sigmoid(y_pred)
     y_pred = y_pred.detach().cpu().numpy()
 
     y_pred = y_pred > 0.5
-    y_pred = y_pred.reshape(-1)
-    y_pred = y_pred.astype(np.uint8)
+    y_pred = y_pred.reshape(-1).astype(np.uint8)
 
     y_true = y_true > 0.5
-    y_true = y_true.reshape(-1)
-    y_true = y_true.astype(np.uint8)
+    y_true = y_true.reshape(-1).astype(np.uint8)
 
     intersection = (y_true * y_pred).sum()
     union = y_true.sum() + y_pred.sum() - intersection
@@ -556,30 +499,19 @@ def calculate_metrics(y_true, y_pred):
     score_dice = (2.0 * intersection + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
     score_jaccard = (intersection + 1e-15) / (union + 1e-15)
 
-    # Compute the scores for each metric
-    '''score_jaccard = jac_score(y_true, y_pred)
-    score_dice = dice_score(y_true, y_pred)
-    score_recall = recall(y_true, y_pred)
-    score_precision = precision(y_true, y_pred)'''
-    #score_fbeta = F2(y_true, y_pred)
-    #score_acc = accuracy_score(y_true, y_pred)
+    return [score_jaccard, score_dice, score_recall, score_precision]
 
-    return [score_jaccard, score_dice, score_recall, score_precision]#, score_acc, score_fbeta]
 
 # Function that evaluates the model on the test set
 def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     param_model.eval()
 
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
+    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
 
     with torch.inference_mode():
         for batched_images, batched_masks in param_dataloader:
-            batched_images = batched_images.to(param_device, non_blocking=True)
-            batched_masks = batched_masks.to(param_device, non_blocking=True)
+            batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
+            batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
 
             y_pred = param_model(batched_images)
             dice_bce_loss = param_criterion(y_pred, batched_masks)
@@ -606,17 +538,18 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     epoch_precision /= len(param_dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
+
 if __name__ == '__main__':
     seed_all(SEED)
 
     if os.path.exists(LOG_PATH):
         print('Log file exists')
     else:
-        train_log_file = open(LOG_PATH, 'w')
-        train_log_file.write('\n')
-        train_log_file.close()
+        test_log_file = open(LOG_PATH, 'w')
+        test_log_file.write('\n')
+        test_log_file.close()
 
-    # Log the start time of training
+    # Log the start time of testing
     start_datetime = str(datetime.datetime.now())
     print_and_save(LOG_PATH, start_datetime)
 
@@ -624,8 +557,8 @@ if __name__ == '__main__':
         dataset_log_text = f'{dataset_name} dataset path: {dataset_path}'
         print_and_save(LOG_PATH, dataset_log_text)
 
-        # Load the images and masks file names for training and validation
-        (test_images_paths, test_masks_paths) = load_data(dataset_path)
+        # Load the images and masks file names for the test split
+        (test_images_paths, test_masks_paths) = load_test_data(dataset_path)
         dataset_log_text = f'Test set size: {len(test_images_paths)}\n'
         print_and_save(LOG_PATH, dataset_log_text)
 
@@ -637,7 +570,7 @@ if __name__ == '__main__':
 
         # Load model from checkpoint
         model = TResUnet().to(DEVICE)
-        model.load_state_dict(torch.load(CHECKPOINT_PATH))
+        model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
 
         test_loss, test_metrics = evaluate_step(model, test_dataloader, DiceBCELoss(), DEVICE)
         test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n\n'

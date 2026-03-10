@@ -52,25 +52,26 @@ def seed_all(param_seed=SEED):
 
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):
+    print(param_text)
     with open(param_file_path, 'a') as file:
         file.write(param_text)
         file.write('\n')
 
-# Function that loads all file names for images and masks in the dataset
-def load_file_names(param_dataset_path, param_split_file):
-    file_names = open(param_split_file, 'r').read().split('\n')[:-1]
-    images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
-    masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
+# Function that loads all file names for images and masks in a dataset
+def load_filenames(param_dataset_path, param_split_file):
+    filenames = open(param_split_file, 'r').read().split('\n')[:-1]
+    images = [os.path.join(param_dataset_path, 'images', name) for name in filenames]
+    masks = [os.path.join(param_dataset_path, 'masks', name) for name in filenames]
     return images, masks
 
-# Function that loads training and validation data from specified dataset path
+# Function that loads training and validation data from all datasets, keeping the same number of samples for each dataset by limiting to the size of the smallest dataset
 def load_data(param_dataset_paths):
     train_images_by_dataset, train_masks_by_dataset = {}, {}
     validation_images_by_dataset, validation_masks_by_dataset = {}, {}
 
     for dataset_name, dataset_path in param_dataset_paths.items():
-        train_images, train_masks = load_file_names(dataset_path, os.path.join(dataset_path, 'train.txt'))
-        validation_images, validation_masks = load_file_names(dataset_path, os.path.join(dataset_path, 'val.txt'))
+        train_images, train_masks = load_filenames(dataset_path, os.path.join(dataset_path, 'train.txt'))
+        validation_images, validation_masks = load_filenames(dataset_path, os.path.join(dataset_path, 'val.txt'))
 
         dataset_id = DATASETS_TO_IDS[dataset_name]
         train_images_by_dataset[dataset_id] = train_images
@@ -81,7 +82,7 @@ def load_data(param_dataset_paths):
     # Keep the same number of samples for each dataset by limiting to the size of the smallest dataset
     min_size_train = min(len(train_images_by_dataset[dataset_id]) for dataset_id in train_images_by_dataset.keys())
     all_train_images, all_train_masks, all_train_dataset_ids = [], [], []
-    
+    #print(f'Min size of training datasets: {min_size_train}')
     for dataset_id in train_images_by_dataset.keys():
         all_train_images.extend(train_images_by_dataset[dataset_id][:min_size_train])
         all_train_masks.extend(train_masks_by_dataset[dataset_id][:min_size_train])
@@ -89,6 +90,7 @@ def load_data(param_dataset_paths):
 
     min_size_validation = min(len(validation_images_by_dataset[dataset_id]) for dataset_id in validation_images_by_dataset.keys())
     all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
+    #print(f'Min size of validation datasets: {min_size_validation}')
     for dataset_id in validation_images_by_dataset.keys():
         all_validation_images.extend(validation_images_by_dataset[dataset_id][:min_size_validation])
         all_validation_masks.extend(validation_masks_by_dataset[dataset_id][:min_size_validation])
@@ -96,10 +98,12 @@ def load_data(param_dataset_paths):
 
     return (all_train_images, all_train_masks, all_train_dataset_ids), (all_validation_images, all_validation_masks, all_validation_dataset_ids)
 
-def shuffling(param_images_path, param_masks_path, param_dataset_ids):
+# Function that shuffles the images, masks and dataset ids
+def shuffle_data(param_images_path, param_masks_path, param_dataset_ids):
     param_images_path, param_masks_path, param_dataset_ids = shuffle(param_images_path, param_masks_path, param_dataset_ids, random_state=SEED)
     return param_images_path, param_masks_path, param_dataset_ids
 
+# Function that saves a checkpoint for resuming training later if needed
 def save_resume_checkpoint(param_model, param_epoch, param_optimizer, param_scheduler, param_best_validation_metric, param_num_epochs_no_improvement, param_path=RESUME_CHECKPOINT_PATH):
     torch.save({
         'model_state': param_model.state_dict(),
@@ -116,6 +120,7 @@ def save_resume_checkpoint(param_model, param_epoch, param_optimizer, param_sche
         }
     }, param_path)
 
+# Function that loads a checkpoint and restores the model, optimizer, scheduler states, as well as RNG states for reproducibility
 def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_path=RESUME_CHECKPOINT_PATH, param_device=DEVICE):
     checkpoint = torch.load(param_path, map_location=param_device, weights_only=False)
     param_model.load_state_dict(checkpoint['model_state'])
@@ -155,11 +160,12 @@ class BalancedBatchSampler(Sampler):
         batch 3 -> 5, 5, 6 samples from dataset 1, 2, 3
         and so on
     '''
-    def __init__(self, param_dataset_ids, param_batch_size, param_shuffle=True):
+    def __init__(self, param_dataset_ids, param_batch_size, param_shuffle=True, param_allow_incomplete_last_batch=False):
         super().__init__()
         self.dataset_ids = np.array(param_dataset_ids, dtype=np.int64)
         self.batch_size = param_batch_size
         self.shuffle = param_shuffle
+        self.allow_incomplete_last_batch = param_allow_incomplete_last_batch
         self.epoch = 0
 
         self.unique_dataset_ids = sorted(np.unique(self.dataset_ids).tolist())
@@ -202,26 +208,39 @@ class BalancedBatchSampler(Sampler):
                 num_required_samples = sample_counts_per_dataset[dataset_id]
                 dataset_indices = shuffled_indices[dataset_id]
             
-                selected_samples = []
-                while len(selected_samples) < num_required_samples:
+                if self.allow_incomplete_last_batch:
                     start_index = current_indices[dataset_id]
                     num_remaining_samples = len(dataset_indices) - start_index
-                    needed_samples = num_required_samples - len(selected_samples)
 
-                    if num_remaining_samples >= needed_samples:
-                        end_index = start_index + needed_samples
-                        selected_samples.extend(dataset_indices[start_index:end_index])
+                    num_samples_to_take = min(num_required_samples, num_remaining_samples)
+                    if num_samples_to_take > 0:
+                        end_index = start_index + num_samples_to_take
+                        batch.extend(dataset_indices[start_index:end_index])
                         current_indices[dataset_id] = end_index
-                    else:
-                        if num_remaining_samples > 0:
-                            selected_samples.extend(dataset_indices[start_index:])
+                else:
+                    selected_samples = []
+                    while len(selected_samples) < num_required_samples:
+                        start_index = current_indices[dataset_id]
+                        num_remaining_samples = len(dataset_indices) - start_index
+                        needed_samples = num_required_samples - len(selected_samples)
 
-                        if self.shuffle:
-                            random_generator.shuffle(dataset_indices)
+                        if num_remaining_samples >= needed_samples:
+                            end_index = start_index + needed_samples
+                            selected_samples.extend(dataset_indices[start_index:end_index])
+                            current_indices[dataset_id] = end_index
+                        else:
+                            if num_remaining_samples > 0:
+                                selected_samples.extend(dataset_indices[start_index:])
 
-                        current_indices[dataset_id] = 0
+                            if self.shuffle:
+                                random_generator.shuffle(dataset_indices)
 
-                batch.extend(selected_samples)
+                            current_indices[dataset_id] = 0
+
+                    batch.extend(selected_samples)
+
+            if len(batch) == 0:
+                break
 
             if self.shuffle:
                 random_generator.shuffle(batch)
@@ -251,11 +270,13 @@ class SegmentationDataset(Dataset):
             image = augmentations['image']
             mask = augmentations['mask']
 
-        image = cv.resize(image, self.size)
-        image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
+        image = cv.resize(image, self.size, interpolation=cv.INTER_LINEAR)
+        image = torch.from_numpy(image).permute(2, 0, 1).float()
+        image.div_(255.0)
 
-        mask = cv.resize(mask, self.size)
-        mask = torch.from_numpy(mask).unsqueeze(0).float() / 255.0
+        mask = cv.resize(mask, self.size, interpolation=cv.INTER_NEAREST)
+        mask = (mask > 127).astype(np.float32)
+        mask = torch.from_numpy(mask).unsqueeze(0)
 
         return image, mask, dataset_id
 
@@ -271,7 +292,6 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
 
 def conv1x1(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -634,37 +654,36 @@ class TResUnet(nn.Module):
         d3 = self.d3(d2, s1)
         d4 = self.d4(d3, x)
 
-        y = self.output(d4)
-
-        return y
+        return self.output(d4)
 
 
 class DiceBCELoss(nn.Module):
-    def __init__(self, weight=None, size_average=True):
+    def __init__(self):
         super().__init__()
 
     def forward(self, inputs, targets, smooth=1):
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
+        
         inputs = torch.sigmoid(inputs)
-
         inputs = inputs.reshape(-1)
         targets = targets.reshape(-1)
 
         intersection = (inputs * targets).sum()
         dice_loss = 1 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
-        bce_loss = F.binary_cross_entropy(inputs, targets, reduction='mean')
         return bce_loss + dice_loss
+        
         
 def calculate_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
+    
+    y_pred = torch.sigmoid(y_pred)
     y_pred = y_pred.detach().cpu().numpy()
 
     y_pred = y_pred > 0.5
-    y_pred = y_pred.reshape(-1)
-    y_pred = y_pred.astype(np.uint8)
+    y_pred = y_pred.reshape(-1).astype(np.uint8)
 
     y_true = y_true > 0.5
-    y_true = y_true.reshape(-1)
-    y_true = y_true.astype(np.uint8)
+    y_true = y_true.reshape(-1).astype(np.uint8)
 
     intersection = (y_true * y_pred).sum()
     union = y_true.sum() + y_pred.sum() - intersection
@@ -679,17 +698,13 @@ def calculate_metrics(y_true, y_pred):
 def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_device):
     param_model.train()
     
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
+    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
 
     for batched_images, batched_masks, _ in param_dataloader:
-        batched_images = batched_images.to(param_device, non_blocking=True)
-        batched_masks = batched_masks.to(param_device, non_blocking=True)
+        batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
+        batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
 
-        param_optimizer.zero_grad(set_to_none=True)
+        param_optimizer.zero_grad()
         y_pred = param_model(batched_images)
         dice_bce_loss = param_criterion(y_pred, batched_masks)
         dice_bce_loss.backward()
@@ -722,16 +737,12 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
 def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     param_model.eval()
 
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
+    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
 
     with torch.inference_mode():
         for batched_images, batched_masks, _ in param_dataloader:
-            batched_images = batched_images.to(param_device, non_blocking=True)
-            batched_masks = batched_masks.to(param_device, non_blocking=True)
+            batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
+            batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
 
             y_pred = param_model(batched_images)
             dice_bce_loss = param_criterion(y_pred, batched_masks)
@@ -780,7 +791,7 @@ if __name__ == '__main__':
 
     # Load the images and masks file names for training and validation
     (train_images_paths, train_masks_paths, train_dataset_ids), (validation_images_paths, validation_masks_paths, validation_dataset_ids) = load_data(DATASETS_PATHS)
-    train_images_paths, train_masks_paths, train_dataset_ids = shuffling(train_images_paths, train_masks_paths, train_dataset_ids)
+    train_images_paths, train_masks_paths, train_dataset_ids = shuffle_data(train_images_paths, train_masks_paths, train_dataset_ids)
     dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
     print_and_save(LOG_PATH, dataset_log_text)
 
@@ -797,8 +808,8 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'])
     
     # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset
-    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], True)
-    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], False)
+    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=True, param_allow_incomplete_last_batch=False)
+    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=False, param_allow_incomplete_last_batch=True)
 
     # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)

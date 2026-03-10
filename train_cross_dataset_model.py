@@ -757,7 +757,7 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         batched_masks = batched_masks.to(param_device, non_blocking=True)
         batched_dataset_ids = batched_dataset_ids.to(param_device, non_blocking=True, dtype=torch.long)
 
-        param_optimizer.zero_grad(set_to_none=True)
+        param_optimizer.zero_grad()
         y_pred, cross_dataset_features = param_model(batched_images, return_feature_maps=True)
         dice_bce_loss = param_criterion(y_pred, batched_masks)
 
