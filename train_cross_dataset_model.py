@@ -28,7 +28,6 @@ HYPERPARAMETERS = {
     'scheduler_patience': 5,
     'early_stopping_patience': 25,
     'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
-    'batch_composition': {0: 4, 1: 4, 2: 8} # for balanced batch sampler, the number of samples from each dataset in a batch
 }
 
 # Dictionary that maps dataset names to an id
@@ -65,7 +64,7 @@ def print_and_save(param_file_path, param_text):
         file.write('\n')
 
 # Function that loads all file names for images and masks in the dataset
-def load_file_names(param_dataset_path, param_split_file):
+def load_split_filenames(param_dataset_path, param_split_file):
     file_names = open(param_split_file, 'r').read().split('\n')[:-1]
     images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
     masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
@@ -77,8 +76,8 @@ def load_data(param_dataset_paths):
     all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
 
     for dataset_name, dataset_path in param_dataset_paths.items():
-        train_images, train_masks = load_file_names(dataset_path, os.path.join(dataset_path, 'train.txt'))
-        validation_images, validation_masks = load_file_names(dataset_path, os.path.join(dataset_path, 'val.txt'))
+        train_images, train_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'train.txt'))
+        validation_images, validation_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'val.txt'))
 
         dataset_id = DATASETS_TO_IDS[dataset_name]
         all_train_images.extend(train_images)
@@ -120,6 +119,7 @@ def determine_weights_for_dataset_specific_models(param_dataset_ids, param_mode=
         weights = torch.full((param_dataset_ids.shape[0], param_num_dataset_specific_models), 0.25, device=param_dataset_ids.device, dtype=torch.float32)
         return weights.scatter_(1, param_dataset_ids.view(-1, 1), 0.5)
 
+# Function that saves a checkpoint for resuming training later if needed
 def save_resume_checkpoint(param_model, param_epoch, param_optimizer, param_scheduler, param_best_validation_metric, param_num_epochs_no_improvement, param_path=RESUME_CHECKPOINT_PATH):
     torch.save({
         'model_state': param_model.state_dict(),
@@ -136,6 +136,7 @@ def save_resume_checkpoint(param_model, param_epoch, param_optimizer, param_sche
         }
     }, param_path)
 
+# Function that loads a checkpoint and restores the model, optimizer, scheduler states, as well as RNG states for reproducibility
 def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_path=RESUME_CHECKPOINT_PATH, param_device=DEVICE):
     checkpoint = torch.load(param_path, map_location=param_device, weights_only=False)
     param_model.load_state_dict(checkpoint['model_state'])
@@ -244,11 +245,13 @@ class SegmentationDataset(Dataset):
             image = augmentations['image']
             mask = augmentations['mask']
 
-        image = cv.resize(image, self.size)
-        image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
+        image = cv.resize(image, self.size, interpolation=cv.INTER_LINEAR)
+        image = torch.from_numpy(image).permute(2, 0, 1).float()
+        image.div_(255.0)
 
-        mask = cv.resize(mask, self.size)
-        mask = torch.from_numpy(mask).unsqueeze(0).float() / 255.0
+        mask = cv.resize(mask, self.size, interpolation=cv.INTER_NEAREST)
+        mask = (mask > 127).astype(np.float32)
+        mask = torch.from_numpy(mask).unsqueeze(0)
 
         return image, mask, dataset_id
 
@@ -264,7 +267,6 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
 
 def conv1x1(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -468,20 +470,6 @@ def resnet50(pretrained=True, progress=True, **kwargs):
 
 
 # TResUnet model
-def save_feats_mean(x):
-    _, _, h, _ = x.shape
-    if h == 256:
-        with torch.no_grad():
-            x = x.detach().cpu().numpy()
-            x = np.transpose(x[0], (1, 2, 0))
-            x = np.mean(x, axis=-1)
-            x = x/np.max(x)
-            x = x * 255.0
-            x = x.astype(np.uint8)
-            x = cv.applyColorMap(x, cv.COLORMAP_JET)
-            x = np.array(x, dtype=np.uint8)
-            return x
-
 class ResidualBlock(nn.Module):
     def __init__(self, in_c, out_c):
         super().__init__()
@@ -634,7 +622,7 @@ class TResUnet(nn.Module):
 
         return [s2, s3]#[s1, s2, s3]
 
-    def forward(self, x, return_feature_maps=False, heatmap=None):
+    def forward(self, x, return_feature_maps=False):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
         s3 = self.layer2(s2)    ## [-1, 512, h/8, w/8]
@@ -652,31 +640,23 @@ class TResUnet(nn.Module):
         y = self.output(d4)
 
         if return_feature_maps:
-            feature_maps = [s2, s3] #[s1, s2, s3]
+            return y, [s1, s2, s3]
+        return y
 
-        if heatmap is not None:
-            hmap = save_feats_mean(d4)
-            if return_feature_maps:
-                return hmap, y, feature_maps
-            return hmap, y
-        else:
-            if return_feature_maps:
-                return y, feature_maps
-            return y
 
 class DiceBCELoss(nn.Module):
-    def __init__(self, weight=None, size_average=True):
-        super(DiceBCELoss, self).__init__()
+    def __init__(self):
+        super().__init__()
 
     def forward(self, inputs, targets, smooth=1):
-        inputs = torch.sigmoid(inputs)
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
 
+        inputs = torch.sigmoid(inputs)
         inputs = inputs.view(-1)
         targets = targets.view(-1)
 
         intersection = (inputs * targets).sum()
-        dice_loss = 1 - (2.*intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
-        bce_loss = F.binary_cross_entropy(inputs, targets, reduction='mean')
+        dice_loss = 1 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
         return bce_loss + dice_loss
 
 def compute_feature_alignment_loss(param_cross_dataset_features, param_dataset_specific_features, param_weights):
@@ -692,38 +672,18 @@ def compute_feature_alignment_loss(param_cross_dataset_features, param_dataset_s
 
     return feature_alignment_loss
 
-def precision(y_true, y_pred):
-    intersection = (y_true * y_pred).sum()
-    return (intersection + 1e-15) / (y_pred.sum() + 1e-15)
-
-def recall(y_true, y_pred):
-    intersection = (y_true * y_pred).sum()
-    return (intersection + 1e-15) / (y_true.sum() + 1e-15)
-
-def F2(y_true, y_pred, beta=2):
-    p = precision(y_true, y_pred)
-    r = recall(y_true, y_pred)
-    return (1 + beta**2.) * (p*r) / float(beta**2 * p + r + 1e-15)
-
-def dice_score(y_true, y_pred):
-    return (2 * (y_true * y_pred).sum() + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
-
-def jac_score(y_true, y_pred):
-    intersection = (y_true * y_pred).sum()
-    union = y_true.sum() + y_pred.sum() - intersection
-    return (intersection + 1e-15) / (union + 1e-15)
         
 def calculate_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
+    
+    y_pred = torch.sigmoid(y_pred)
     y_pred = y_pred.detach().cpu().numpy()
 
     y_pred = y_pred > 0.5
-    y_pred = y_pred.reshape(-1)
-    y_pred = y_pred.astype(np.uint8)
+    y_pred = y_pred.reshape(-1).astype(np.uint8)
 
     y_true = y_true > 0.5
-    y_true = y_true.reshape(-1)
-    y_true = y_true.astype(np.uint8)
+    y_true = y_true.reshape(-1).astype(np.uint8)
 
     intersection = (y_true * y_pred).sum()
     union = y_true.sum() + y_pred.sum() - intersection
@@ -732,29 +692,17 @@ def calculate_metrics(y_true, y_pred):
     score_dice = (2.0 * intersection + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
     score_jaccard = (intersection + 1e-15) / (union + 1e-15)
 
-    # Compute the scores for each metric
-    '''score_jaccard = jac_score(y_true, y_pred)
-    score_dice = dice_score(y_true, y_pred)
-    score_recall = recall(y_true, y_pred)
-    score_precision = precision(y_true, y_pred)'''
-    #score_fbeta = F2(y_true, y_pred)
-    #score_acc = accuracy_score(y_true, y_pred)
-
-    return [score_jaccard, score_dice, score_recall, score_precision]#, score_acc, score_fbeta]
+    return [score_jaccard, score_dice, score_recall, score_precision]
 
 # Function that performs a training step for the student model, including the feature alignment loss from the dataset specific models based on the specified weighting mode
 def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_dataset_specific_models, param_weighting_mode, param_device):
     param_model.train()
     
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
+    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
 
     for batched_images, batched_masks, batched_dataset_ids in param_dataloader:
-        batched_images = batched_images.to(param_device, non_blocking=True)
-        batched_masks = batched_masks.to(param_device, non_blocking=True)
+        batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
+        batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
         batched_dataset_ids = batched_dataset_ids.to(param_device, non_blocking=True, dtype=torch.long)
 
         param_optimizer.zero_grad()
@@ -795,6 +743,7 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         total_loss = dice_bce_loss + feature_alignment_loss
         total_loss.backward()
         param_optimizer.step()
+
         epoch_loss += total_loss.item()
 
         # Calculate metrics
@@ -822,19 +771,16 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
 def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
     param_model.eval()
 
-    epoch_loss = 0.0
-    epoch_jaccard = 0.0
-    epoch_dice = 0.0
-    epoch_recall = 0.0
-    epoch_precision = 0.0
+    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
 
     with torch.inference_mode():
         for batched_images, batched_masks, _ in param_dataloader:
-            batched_images = batched_images.to(param_device, non_blocking=True)
-            batched_masks = batched_masks.to(param_device, non_blocking=True)
+            batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
+            batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
 
             y_pred = param_model(batched_images)
             dice_bce_loss = param_criterion(y_pred, batched_masks)
+            
             epoch_loss += dice_bce_loss.item()
 
             # Calculate metrics

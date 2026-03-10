@@ -58,10 +58,10 @@ def print_and_save(param_file_path, param_text):
         file.write('\n')
 
 # Function that loads all file names for images and masks in a dataset
-def load_filenames(param_dataset_path, param_split_file):
-    filenames = open(param_split_file, 'r').read().split('\n')[:-1]
-    images = [os.path.join(param_dataset_path, 'images', name) for name in filenames]
-    masks = [os.path.join(param_dataset_path, 'masks', name) for name in filenames]
+def load_split_filenames(param_dataset_path, param_split_file):
+    file_names = open(param_split_file, 'r').read().split('\n')[:-1]
+    images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
+    masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
     return images, masks
 
 # Function that loads training and validation data from all datasets, keeping the same number of samples for each dataset by limiting to the size of the smallest dataset
@@ -70,8 +70,8 @@ def load_data(param_dataset_paths):
     validation_images_by_dataset, validation_masks_by_dataset = {}, {}
 
     for dataset_name, dataset_path in param_dataset_paths.items():
-        train_images, train_masks = load_filenames(dataset_path, os.path.join(dataset_path, 'train.txt'))
-        validation_images, validation_masks = load_filenames(dataset_path, os.path.join(dataset_path, 'val.txt'))
+        train_images, train_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'train.txt'))
+        validation_images, validation_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'val.txt'))
 
         dataset_id = DATASETS_TO_IDS[dataset_name]
         train_images_by_dataset[dataset_id] = train_images

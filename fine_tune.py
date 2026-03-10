@@ -56,9 +56,9 @@ def print_and_save(param_file_path, param_text):
 
 # Function that loads all file names for images and masks in the dataset
 def load_split_filenames(param_dataset_path, param_split_file):
-    filenames = open(param_split_file, 'r').read().split('\n')[:-1]
-    images = [os.path.join(param_dataset_path, 'images', name) for name in filenames]
-    masks = [os.path.join(param_dataset_path, 'masks', name) for name in filenames]
+    file_names = open(param_split_file, 'r').read().split('\n')[:-1]
+    images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
+    masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
     return images, masks
 
 # Function that loads training and validation data from specified dataset path
