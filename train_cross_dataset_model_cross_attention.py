@@ -24,21 +24,25 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 25,
+    'early_stopping_patience': 20,
     'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
 }
 
 # Dictionary that maps dataset names to an id
 DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 
+# Constant for the root path for all necessary files
+ROOT_PATH = '/root/Disertation'
 # Constants for dataset paths
-DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
+DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
+# Constant for fused model checkpoint path
+FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/cross_attn'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/fused_not_weighted'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -123,7 +127,7 @@ def load_dataset_specific_models(param_dataset_specific_models_checkpoints, para
     return dataset_specific_models
 
 # Determine the weights for each dataset specific model based on the specified mode and the dataset ids of the samples in the batch
-def determine_weights_for_dataset_specific_models(param_dataset_ids, param_mode=0, param_num_dataset_specific_models=len(DATASETS_TO_IDS)):
+def determine_weights_for_dataset_specific_models(param_dataset_ids, param_mode, param_num_dataset_specific_models=len(DATASETS_TO_IDS)):
     if param_mode == 0: # one hot encoding = > 1 for the dataset specific model corresponding to the dataset and 0 for the others
         return F.one_hot(param_dataset_ids, num_classes=param_num_dataset_specific_models).float().to(param_dataset_ids.device)
     elif param_mode == 1: # uniform weights = > 1/num_dataset_specific_models for all dataset specific models
@@ -317,7 +321,6 @@ model_urls = {
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
-
 
 def conv1x1(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
@@ -678,9 +681,9 @@ class TResUnet(nn.Module):
         b2 = self.b2(s4)
         b3 = torch.cat([b1, b2], dim=1)
 
-        return s1, s2, s3, b3
+        return [s1, s2, s3, b3]
 
-    def forward(self, x):
+    def forward(self, x, return_features=False):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
         s3 = self.layer2(s2)    ## [-1, 512, h/8, w/8]
@@ -695,7 +698,11 @@ class TResUnet(nn.Module):
         d3 = self.d3(d2, s1)
         d4 = self.d4(d3, x)
 
-        return self.output(d4)
+        y = self.output(d4)
+
+        if return_features:
+            return y, [s1, s2, s3, b3]
+        return y
     
 class ConvolveResidualBlock(nn.Module):
     def __init__(self, in_channels):
@@ -733,7 +740,7 @@ class ConvolveResidualBlock(nn.Module):
 
         return out
     
-class CrossAttentionBlock(nn.Module):
+'''class CrossAttentionBlock(nn.Module):
     def __init__(self, in_channels, num_heads=8):
         super().__init__()
         self.query = nn.Conv2d(in_channels, in_channels, kernel_size=1)
@@ -781,27 +788,21 @@ class CrossAttentionBlock(nn.Module):
         attn_output = attn_output.view(b, h, w, c).permute(0, 3, 1, 2)  # Reshape back
 
         # Dynamic weighted aggregation with residual
-        return x1 + self.alpha * attn_output  # Learnable weight to adjust influence
+        return x1 + self.alpha * attn_output  # Learnable weight to adjust influence'''
 
-class TResUnetGenericModel(nn.Module):
-    def __init__(self, dataset_specific_paths=None, device=DEVICE):
+class TResUnetFusedDatasetSpecificModels(nn.Module):
+    def __init__(self, dataset_specific_models):
         super().__init__()
 
-        # Load pre-trained dataset-specific models
-        self.dataset_specific_1 = TResUnet()
-        self.dataset_specific_2 = TResUnet()
-        self.dataset_specific_3 = TResUnet()
-
-        if dataset_specific_paths is not None:
-            assert len(dataset_specific_paths) == 3, 'Three dataset specific models paths must be provided.'
-            self.dataset_specific_1.load_state_dict(torch.load(dataset_specific_paths[0], map_location=device), strict=False)
-            self.dataset_specific_2.load_state_dict(torch.load(dataset_specific_paths[1], map_location=device), strict=False)
-            self.dataset_specific_3.load_state_dict(torch.load(dataset_specific_paths[2], map_location=device), strict=False)
+        # Load the pretrained dataset specific models and the weighting mode for combining their features
+        self.dataset_specific_1 = dataset_specific_models[0]
+        self.dataset_specific_2 = dataset_specific_models[1]
+        self.dataset_specific_3 = dataset_specific_models[2]
 
         # Cross-attention blocks for each encoder level
-        self.cross_attn1 = CrossAttentionBlock(64)
-        self.cross_attn2 = CrossAttentionBlock(256)
-        self.cross_attn3 = CrossAttentionBlock(512)
+        #self.cross_attn1 = CrossAttentionBlock(64)
+        #self.cross_attn2 = CrossAttentionBlock(256)
+        #self.cross_attn3 = CrossAttentionBlock(512)
 
         # Convolutional blocks for combined encoder outputs
         self.conv_1 = ConvolveResidualBlock(1536)
@@ -818,24 +819,38 @@ class TResUnetGenericModel(nn.Module):
         # Final output layer
         self.output = nn.Conv2d(32, 1, kernel_size=1)
 
-    def forward(self, x):
+    def forward(self, x, weighting_mode=None, dataset_ids=None, return_features=False):
         # Encode features from each dataset specific model
-        ds1_s1, ds1_s2, ds1_s3, ds1_b = self.dataset_specific_1.encode(x)
-        ds2_s1, ds2_s2, ds2_s3, ds2_b = self.dataset_specific_2.encode(x)
-        ds3_s1, ds3_s2, ds3_s3, ds3_b = self.dataset_specific_3.encode(x)
+        [ds1_s1, ds1_s2, ds1_s3, ds1_b] = self.dataset_specific_1.encode(x)
+        [ds2_s1, ds2_s2, ds2_s3, ds2_b] = self.dataset_specific_2.encode(x)
+        [ds3_s1, ds3_s2, ds3_s3, ds3_b] = self.dataset_specific_3.encode(x)
 
         # Cross-attention on encoder outputs
-        ds1_s1 = self.cross_attn1(ds1_s1, ds2_s1) + self.cross_attn1(ds1_s1, ds3_s1) + self.cross_attn1(ds2_s1, ds3_s1)
-        ds1_s2 = self.cross_attn2(ds1_s2, ds2_s2) + self.cross_attn2(ds1_s2, ds3_s2) + self.cross_attn2(ds2_s2, ds3_s2)
-        ds1_s3 = self.cross_attn3(ds1_s3, ds2_s3) + self.cross_attn3(ds1_s3, ds3_s3) + self.cross_attn3(ds2_s3, ds3_s3)
+        #ds1_s1 = self.cross_attn1(ds1_s1, ds2_s1) + self.cross_attn1(ds1_s1, ds3_s1) + self.cross_attn1(ds2_s1, ds3_s1)
+        #ds1_s2 = self.cross_attn2(ds1_s2, ds2_s2) + self.cross_attn2(ds1_s2, ds3_s2) + self.cross_attn2(ds2_s2, ds3_s2)
+        #ds1_s3 = self.cross_attn3(ds1_s3, ds2_s3) + self.cross_attn3(ds1_s3, ds3_s3) + self.cross_attn3(ds2_s3, ds3_s3)
 
-        # Concatenate the encoder outputs with cross-attention applied
-        combined_s1 = torch.cat([ds1_s1, ds2_s1, ds3_s1], dim=1)
-        combined_s2 = torch.cat([ds1_s2, ds2_s2, ds3_s2], dim=1)
-        combined_s3 = torch.cat([ds1_s3, ds2_s3, ds3_s3], dim=1)
+        if weighting_mode is not None:
+            weights = determine_weights_for_dataset_specific_models(dataset_ids, weighting_mode)
+            weights_1 = weights[:, 0].view(-1, 1, 1, 1)
+            weights_2 = weights[:, 1].view(-1, 1, 1, 1)
+            weights_3 = weights[:, 2].view(-1, 1, 1, 1)
 
-        # Concatenate bottleneck features from all dataset specific models
-        combined_bottleneck = torch.cat((ds1_b, ds2_b, ds3_b), dim=1)
+            # Concatenate the encoder outputs with cross-attention applied
+            combined_s1 = torch.cat([weights_1 * ds1_s1, weights_2 * ds2_s1, weights_3 * ds3_s1], dim=1)
+            combined_s2 = torch.cat([weights_1 * ds1_s2, weights_2 * ds2_s2, weights_3 * ds3_s2], dim=1)
+            combined_s3 = torch.cat([weights_1 * ds1_s3, weights_2 * ds2_s3, weights_3 * ds3_s3], dim=1)
+
+            # Concatenate bottleneck features from all dataset specific models
+            combined_bottleneck = torch.cat((weights_1 * ds1_b, weights_2 * ds2_b, weights_3 * ds3_b), dim=1)
+        else:
+            # Concatenate the encoder outputs with cross-attention applied
+            combined_s1 = torch.cat([ds1_s1, ds2_s1, ds3_s1], dim=1)
+            combined_s2 = torch.cat([ds1_s2, ds2_s2, ds3_s2], dim=1)
+            combined_s3 = torch.cat([ds1_s3, ds2_s3, ds3_s3], dim=1)
+
+            # Concatenate bottleneck features from all dataset specific models
+            combined_bottleneck = torch.cat((ds1_b, ds2_b, ds3_b), dim=1)
 
         # Convolution and decoder layers
         conv_bottleneck = self.conv_1(combined_bottleneck)
@@ -849,7 +864,12 @@ class TResUnetGenericModel(nn.Module):
         d3 = self.d3(d2, conv_s1)
         d4 = self.d4(d3, x)
 
-        return self.output(d4)
+        y = self.output(d4)
+
+        if return_features:
+            return y, [conv_s1, conv_s2, conv_s3, conv_bottleneck]
+        else:
+            return y
 
 class DiceBCELoss(nn.Module):
     def __init__(self):
@@ -866,20 +886,33 @@ class DiceBCELoss(nn.Module):
         dice_loss = 1 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
         return bce_loss + dice_loss
 
-def compute_feature_alignment_loss(param_cross_dataset_features, param_dataset_specific_features, param_weights):
-    feature_alignment_loss = 0.0
+# Feature Aligner: Projects generic model features into the dimensions of fused dataset-specific models features
+'''class FeatureAligner(nn.Module):
+    def __init__(self, generic_dims, fused_dims):
+        super().__init__()
+        self.projections = nn.ModuleList([
+            nn.Conv2d(fused_dim, generic_dim, kernel_size=1) for generic_dim, fused_dim in zip(generic_dims, fused_dims)
+        ])
 
-    for encoder_block_index in range(len(param_cross_dataset_features)):
-        cross_dataset_features = param_cross_dataset_features[encoder_block_index]
+    def forward(self, fused_features):
+        return [proj(fused_feature) for proj, fused_feature in zip(self.projections, fused_features)]'''
 
-        for dataset_id in range(len(DATASETS_TO_IDS)):
-            dataset_specific_feature = param_dataset_specific_features[dataset_id][encoder_block_index].detach()
-            mse_difference_per_sample = F.mse_loss(cross_dataset_features, dataset_specific_feature, reduction='none').mean(dim=(1, 2, 3))
-            feature_alignment_loss += (param_weights[:, dataset_id] * mse_difference_per_sample).mean()
+# Feature alignment loss
+def compute_feature_alignment_loss(generic_features, fused_features):
+    for generic_feature in generic_features:
+        print(generic_feature.shape)
+    for fused_feature in fused_features:
+        print(fused_feature.shape)
 
-    return feature_alignment_loss
+    '''aligners = [
+        nn.Conv2d(fused_features[i].size(1), generic_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
+        for i in range(len(generic_features))
+    ]
+    aligned_fused_features = [aligners[i](fused_features[i]) for i in range(len(fused_features))]'''
 
-        
+    return sum(F.mse_loss(generic_feature, fused_feature) for generic_feature, fused_feature in zip(generic_features, fused_features)) / len(fused_features)
+
+
 def calculate_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
     
@@ -902,8 +935,9 @@ def calculate_metrics(y_true, y_pred):
     return [score_jaccard, score_dice, score_recall, score_precision]
 
 # Function that performs a training step for the student model, including the feature alignment loss from the dataset specific models based on the specified weighting mode
-def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_dataset_specific_models, param_weighting_mode, param_device):
+def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_fused_model, param_weighting_mode, param_device):
     param_model.train()
+    param_fused_model.eval()
     
     epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
 
@@ -913,39 +947,15 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         batched_dataset_ids = batched_dataset_ids.to(param_device, non_blocking=True, dtype=torch.long)
 
         param_optimizer.zero_grad()
-        y_pred, cross_dataset_features = param_model(batched_images, return_feature_maps=True)
-        dice_bce_loss = param_criterion(y_pred, batched_masks)
 
-        # Pass the batch to each dataset specific model and collect the feature maps
+        # Pass the batch through the fused dataset-specific models
         with torch.no_grad():
-            # In this mode only the features from the dataset specific model corresponding to the dataset of each sample are used for feature alignment
-            if param_weighting_mode == 0:
-                dataset_specific_features = [torch.empty_like(feature) for feature in cross_dataset_features]
-                # Iterate over the unique dataset ids in the batch and pass the corresponding samples through the appropriate dataset specific model to collect the dataset specific features
-                for dataset_id in batched_dataset_ids.unique(sorted=False):
-                    dataset_id = int(dataset_id.item())
-                    indexes = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
-                    dataset_specific_feature = param_dataset_specific_models[dataset_id].encode(batched_images[indexes])
-                    for encoder_block_index in range(len(cross_dataset_features)):
-                        dataset_specific_features[encoder_block_index][indexes] = dataset_specific_feature[encoder_block_index]
+            _, fused_features = param_fused_model(batched_images, weighting_mode=param_weighting_mode, dataset_ids=batched_dataset_ids, return_features=True)
+        
+        y_pred, cross_dataset_features = param_model(batched_images, return_features=True)
+        dice_bce_loss = param_criterion(y_pred, batched_masks)
+        feature_alignment_loss = compute_feature_alignment_loss(cross_dataset_features, fused_features)
 
-                # Compute the feature alignment loss using the collected dataset specific features and the student features
-                feature_alignment_loss = 0.0
-                for encoder_block_index in range(len(cross_dataset_features)):
-                    mse_difference = F.mse_loss(cross_dataset_features[encoder_block_index], dataset_specific_features[encoder_block_index], reduction='none').mean(dim=(1, 2, 3))
-                    feature_alignment_loss += mse_difference.mean()
-
-            # Otherwise, the features are collected from all dataset specific models and weighted based on the specified mode to compute the feature alignment loss
-            else:
-                dataset_specific_features = [None] * len(param_dataset_specific_models)
-                # Iterate over all dataset specific models and pass the entire batch through each model to collect the dataset specific features
-                for dataset_id, dataset_specific_model in param_dataset_specific_models.items():
-                    dataset_specific_features[dataset_id] = dataset_specific_model.encode(batched_images)
-
-                # Determine the weights for each dataset specific model based on the specified mode and compute the feature alignment loss
-                dataset_specific_models_weights = determine_weights_for_dataset_specific_models(batched_dataset_ids, param_weighting_mode, len(param_dataset_specific_models))
-                feature_alignment_loss = compute_feature_alignment_loss(cross_dataset_features, dataset_specific_features, dataset_specific_models_weights)
-    
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
         total_loss = dice_bce_loss + feature_alignment_loss
         total_loss.backward()
@@ -1060,6 +1070,14 @@ if __name__ == '__main__':
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS)
+    fused_model = TResUnetFusedDatasetSpecificModels(dataset_specific_models).to(DEVICE)
+    fused_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))
+    fused_model.eval()
+    for param in fused_model.parameters():
+        param.requires_grad = False
+        
+    # Feature aligner
+    #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
 
     # Create model, optimizer, scheduler, and criterion
     model = TResUnet().to(DEVICE)
@@ -1079,7 +1097,7 @@ if __name__ == '__main__':
         start_time = time.time()
         train_sampler.set_epoch(epoch)
 
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, dataset_specific_models, HYPERPARAMETERS['dsm_weight_mode'], DEVICE)
+        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, fused_model, HYPERPARAMETERS['dsm_weight_mode'], DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 
