@@ -23,11 +23,15 @@ HYPERPARAMETERS = {
 # Dictionary that maps dataset names to an id
 DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 
+# Constant for the root path for all necessary files
+ROOT_PATH = '/root/Disertation'
+
 # Constants for dataset paths
-DATASETS_ROOT_PATH = '/home/dragos/disertation/datasets'
+DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
+
 # Constants for student model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/s2_s3_features'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/only_segmentation'
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_cross_dataset.txt'
 
@@ -39,6 +43,7 @@ def seed_all(param_seed=SEED):
     torch.manual_seed(param_seed)
     torch.cuda.manual_seed(param_seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):

@@ -27,16 +27,20 @@ HYPERPARAMETERS = {
     'early_stopping_patience': 25,
 }
 
+# Constant for the root path for all necessary files
+ROOT_PATH = '/root/Disertation'
+
 # Constants for dataset name and path
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
-DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
+DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
+
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/fine_tune/biased/s2_s3_features/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fine_tune/biased/s2_s3_features/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 # Path to the pretrained model checkpoint
-PRETRAINED_CHECKPOINT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/s2_s3_features/cross_dataset_model.pth'
+PRETRAINED_CHECKPOINT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/s2_s3_features/cross_dataset_model.pth'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -46,6 +50,7 @@ def seed_all(param_seed=SEED):
     torch.manual_seed(param_seed)
     torch.cuda.manual_seed(param_seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):

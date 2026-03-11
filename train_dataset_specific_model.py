@@ -24,14 +24,18 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 25,
+    'early_stopping_patience': 20,
 }
+
+# Constant for the root path for all necessary files
+ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
-DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
+DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
+
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -44,6 +48,7 @@ def seed_all(param_seed=SEED):
     torch.manual_seed(param_seed)
     torch.cuda.manual_seed(param_seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):
@@ -429,7 +434,7 @@ class DecoderBlock(nn.Module):
         super().__init__()
 
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.r1 = ResidualBlock(in_c[0]+in_c[1], out_c)
+        self.r1 = ResidualBlock(in_c[0] + in_c[1], out_c)
         self.r2 = ResidualBlock(out_c, out_c)
 
     def forward(self, inputs, skip):

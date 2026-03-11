@@ -20,16 +20,20 @@ HYPERPARAMETERS = {
     'batch_size': 16
 }
 
+# Constant for the root path for all necessary files
+ROOT_PATH = '/root/Disertation'
+
 # Constants for dataset name and path
 DATASET_NAME = 'isles' # 'bmshare', 'brats'
-DATASET_PATH = f'/home/dragos/disertation/datasets/{DATASET_NAME}'
+DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
+
 # Constant for model checkpoint path and log path
-"""MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/{DATASET_NAME}'
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
-LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'"""
-MODELS_AND_LOG_ROOT_PATH = f'/home/dragos/disertation/files/fine_tune/biased/s2_s3_features/{DATASET_NAME}'
-CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
+"""MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fine_tune/biased/s2_s3_features/{DATASET_NAME}'
+CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
+LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'"""
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -39,6 +43,7 @@ def seed_all(param_seed=SEED):
     torch.manual_seed(param_seed)
     torch.cuda.manual_seed(param_seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):

@@ -33,14 +33,18 @@ DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
+
 # Constants for dataset paths
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
+
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
 DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
+
 # Constant for fused model checkpoint path
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
+
 # Constants for model checkpoint path and log path
 MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/fused_not_weighted'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
@@ -57,7 +61,8 @@ def seed_all(param_seed=SEED):
     torch.manual_seed(param_seed)
     torch.cuda.manual_seed(param_seed)
     torch.backends.cudnn.deterministic = True
-
+    torch.backends.cudnn.benchmark = False
+    
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):
     print(param_text)

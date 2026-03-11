@@ -24,17 +24,21 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 25
+    'early_stopping_patience': 20
 }
 
 # Dictionary that maps dataset names to an id
 DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 
+# Constant for the root path for all necessary files
+ROOT_PATH = '/root/Disertation'
+
 # Constants for dataset paths
-DATASETS_ROOT_PATH = '/root/Disertation/datasets'
+DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
+
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/root/Disertation/files/cross_dataset/only_segmentation'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/only_segmentation'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -49,6 +53,7 @@ def seed_all(param_seed=SEED):
     torch.manual_seed(param_seed)
     torch.cuda.manual_seed(param_seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):
