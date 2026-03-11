@@ -121,7 +121,7 @@ def load_dataset_specific_models(param_dataset_specific_models_checkpoints, para
     dataset_specific_models = {}
     for dataset_name, checkpoint_path in param_dataset_specific_models_checkpoints.items():
         dataset_specific_model = TResUnet().to(param_device)
-        dataset_specific_model.load_state_dict(torch.load(checkpoint_path, map_location=param_device))
+        dataset_specific_model.load_state_dict(torch.load(checkpoint_path, map_location=param_device), strict=False)
         dataset_specific_model.eval()
 
         # Freeze the parameters of each dataset specific model
@@ -1076,7 +1076,7 @@ if __name__ == '__main__':
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS)
     fused_model = TResUnetFusedDatasetSpecificModels(dataset_specific_models).to(DEVICE)
-    fused_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))
+    fused_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False)
     fused_model.eval()
     for param in fused_model.parameters():
         param.requires_grad = False

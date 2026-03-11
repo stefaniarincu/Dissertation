@@ -26,7 +26,6 @@ HYPERPARAMETERS = {
     'scheduler_patience': 5,
     'early_stopping_patience': 25,
     'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
-    'batch_composition': {0: 4, 1: 4, 2: 8}, # for balanced batch sampler, the number of samples from each dataset in a batch
 }
 
 # Dictionary that maps dataset names to an id
@@ -75,23 +74,37 @@ def load_split_filenames(param_dataset_path, param_split_file):
     masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
     return images, masks
 
-# Function that loads training and validation data from specified dataset path
+# Function that loads training and validation data from all datasets, keeping the same number of samples for each dataset by limiting to the size of the smallest dataset
 def load_data(param_dataset_paths):
-    all_train_images, all_train_masks, all_train_dataset_ids = [], [], []
-    all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
+    train_images_by_dataset, train_masks_by_dataset = {}, {}
+    validation_images_by_dataset, validation_masks_by_dataset = {}, {}
 
     for dataset_name, dataset_path in param_dataset_paths.items():
         train_images, train_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'train.txt'))
         validation_images, validation_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'val.txt'))
 
         dataset_id = DATASETS_TO_IDS[dataset_name]
-        all_train_images.extend(train_images)
-        all_train_masks.extend(train_masks)
-        all_train_dataset_ids.extend([dataset_id] * len(train_images))
+        train_images_by_dataset[dataset_id] = train_images
+        train_masks_by_dataset[dataset_id] = train_masks
+        validation_images_by_dataset[dataset_id] = validation_images
+        validation_masks_by_dataset[dataset_id] = validation_masks
 
-        all_validation_images.extend(validation_images)
-        all_validation_masks.extend(validation_masks)
-        all_validation_dataset_ids.extend([dataset_id] * len(validation_images))
+    # Keep the same number of samples for each dataset by limiting to the size of the smallest dataset
+    min_size_train = min(len(train_images_by_dataset[dataset_id]) for dataset_id in train_images_by_dataset.keys())
+    all_train_images, all_train_masks, all_train_dataset_ids = [], [], []
+    #print(f'Min size of training datasets: {min_size_train}')
+    for dataset_id in train_images_by_dataset.keys():
+        all_train_images.extend(train_images_by_dataset[dataset_id][:min_size_train])
+        all_train_masks.extend(train_masks_by_dataset[dataset_id][:min_size_train])
+        all_train_dataset_ids.extend([dataset_id] * min_size_train)
+
+    min_size_validation = min(len(validation_images_by_dataset[dataset_id]) for dataset_id in validation_images_by_dataset.keys())
+    all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
+    #print(f'Min size of validation datasets: {min_size_validation}')
+    for dataset_id in validation_images_by_dataset.keys():
+        all_validation_images.extend(validation_images_by_dataset[dataset_id][:min_size_validation])
+        all_validation_masks.extend(validation_masks_by_dataset[dataset_id][:min_size_validation])
+        all_validation_dataset_ids.extend([dataset_id] * min_size_validation)
 
     return (all_train_images, all_train_masks, all_train_dataset_ids), (all_validation_images, all_validation_masks, all_validation_dataset_ids)
 
@@ -105,7 +118,7 @@ def load_dataset_specific_models(param_dataset_specific_models_checkpoints, para
     dataset_specific_models = {}
     for dataset_name, checkpoint_path in param_dataset_specific_models_checkpoints.items():
         dataset_specific_model = TResUnet().to(param_device)
-        dataset_specific_model.load_state_dict(torch.load(checkpoint_path, map_location=param_device))
+        dataset_specific_model.load_state_dict(torch.load(checkpoint_path, map_location=param_device), strict=False)
         dataset_specific_model.eval()
 
         # Freeze the parameters of each dataset specific model
@@ -116,7 +129,7 @@ def load_dataset_specific_models(param_dataset_specific_models_checkpoints, para
     return dataset_specific_models
 
 # Determine the weights for each dataset specific model based on the specified mode and the dataset ids of the samples in the batch
-def determine_weights_for_dataset_specific_models(param_dataset_ids, param_mode=0, param_num_dataset_specific_models=len(DATASETS_TO_IDS)):
+def determine_weights_for_dataset_specific_models(param_dataset_ids, param_mode, param_num_dataset_specific_models=len(DATASETS_TO_IDS)):
     if param_mode == 0: # one hot encoding = > 1 for the dataset specific model corresponding to the dataset and 0 for the others
         return F.one_hot(param_dataset_ids, num_classes=param_num_dataset_specific_models).float().to(param_dataset_ids.device)
     elif param_mode == 1: # uniform weights = > 1/num_dataset_specific_models for all dataset specific models
@@ -175,22 +188,27 @@ def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_
     return epoch, best_validation_metric, num_epochs_no_improvement
 
 class BalancedBatchSampler(Sampler):
-    def __init__(self, param_dataset_ids, param_batch_composition):
+    '''
+    For batch_size=16 and 3 datasets:
+        batch 1 -> 6, 5, 5 samples from dataset 1, 2, 3
+        batch 2 -> 5, 6, 5 samples from dataset 1, 2, 3
+        batch 3 -> 5, 5, 6 samples from dataset 1, 2, 3
+        and so on
+    '''
+    def __init__(self, param_dataset_ids, param_batch_size, param_shuffle=True, param_allow_incomplete_last_batch=False):
         super().__init__()
-
         self.dataset_ids = np.array(param_dataset_ids, dtype=np.int64)
-        self.batch_composition = param_batch_composition
+        self.batch_size = param_batch_size
+        self.shuffle = param_shuffle
+        self.allow_incomplete_last_batch = param_allow_incomplete_last_batch
         self.epoch = 0
 
-        self.ids_indices = {dataset_id: np.where(self.dataset_ids == dataset_id)[0] for dataset_id in self.batch_composition.keys()}
-
-        batches_per_dataset = []
-        for dataset_id in self.batch_composition.keys():
-            num_samples = len(self.ids_indices[dataset_id])
-            num_batches = int(np.ceil(num_samples / self.batch_composition[dataset_id]))
-            batches_per_dataset.append(num_batches)
-
-        self.num_batches = max(batches_per_dataset)
+        self.unique_dataset_ids = sorted(np.unique(self.dataset_ids).tolist())
+        self.indices_per_dataset = {dataset_id: np.where(self.dataset_ids == dataset_id)[0].tolist() for dataset_id in self.unique_dataset_ids}
+        
+        self.base_count = self.batch_size // len(self.indices_per_dataset)
+        self.remainder = self.batch_size % len(self.indices_per_dataset)
+        self.num_batches = int(np.ceil(len(self.dataset_ids) / self.batch_size))
 
     def set_epoch(self, param_epoch):
         self.epoch = param_epoch
@@ -199,32 +217,68 @@ class BalancedBatchSampler(Sampler):
         return self.num_batches
     
     def __iter__(self):
-        random_generator = random.Random(SEED + self.epoch)
-        
+        if self.shuffle:
+            random_generator = random.Random(SEED + self.epoch)
+
         shuffled_indices, current_indices = {}, {}
-        for dataset_id in self.batch_composition.keys():
-            dataset_indices = self.ids_indices[dataset_id].tolist()
-            random_generator.shuffle(dataset_indices)
+        for dataset_id in self.unique_dataset_ids:
+            dataset_indices = self.indices_per_dataset[dataset_id].copy()
+            
+            if self.shuffle:
+                random_generator.shuffle(dataset_indices)
+            
             shuffled_indices[dataset_id] = dataset_indices
             current_indices[dataset_id] = 0
 
-        for _ in range(self.num_batches):
-            batch =[]
+        for batch_index in range(self.num_batches):
+            sample_counts_per_dataset = {dataset_id: self.base_count for dataset_id in self.unique_dataset_ids}
+            
+            for extra_index in range(self.remainder):
+                dataset_id = self.unique_dataset_ids[(batch_index + extra_index + self.epoch) % len(self.unique_dataset_ids)]
+                sample_counts_per_dataset[dataset_id] += 1
 
-            for dataset_id, num_samples_per_batch in self.batch_composition.items():
+            batch = []
+
+            for dataset_id in self.unique_dataset_ids:
+                num_required_samples = sample_counts_per_dataset[dataset_id]
                 dataset_indices = shuffled_indices[dataset_id]
-                start_idx = current_indices[dataset_id]
-                end_idx = start_idx + num_samples_per_batch
+            
+                if self.allow_incomplete_last_batch:
+                    start_index = current_indices[dataset_id]
+                    num_remaining_samples = len(dataset_indices) - start_index
 
-                if end_idx > len(dataset_indices):
-                    random_generator.shuffle(dataset_indices)
-                    start_idx = 0
-                    end_idx = num_samples_per_batch
+                    num_samples_to_take = min(num_required_samples, num_remaining_samples)
+                    if num_samples_to_take > 0:
+                        end_index = start_index + num_samples_to_take
+                        batch.extend(dataset_indices[start_index:end_index])
+                        current_indices[dataset_id] = end_index
+                else:
+                    selected_samples = []
+                    while len(selected_samples) < num_required_samples:
+                        start_index = current_indices[dataset_id]
+                        num_remaining_samples = len(dataset_indices) - start_index
+                        needed_samples = num_required_samples - len(selected_samples)
 
-                batch.extend(dataset_indices[start_idx:end_idx])
-                current_indices[dataset_id] = end_idx
+                        if num_remaining_samples >= needed_samples:
+                            end_index = start_index + needed_samples
+                            selected_samples.extend(dataset_indices[start_index:end_index])
+                            current_indices[dataset_id] = end_index
+                        else:
+                            if num_remaining_samples > 0:
+                                selected_samples.extend(dataset_indices[start_index:])
 
-            random_generator.shuffle(batch)
+                            if self.shuffle:
+                                random_generator.shuffle(dataset_indices)
+
+                            current_indices[dataset_id] = 0
+
+                    batch.extend(selected_samples)
+
+            if len(batch) == 0:
+                break
+
+            if self.shuffle:
+                random_generator.shuffle(batch)
             yield batch
 
 # Segmentation Dataset class for loading images and masks
@@ -623,11 +677,15 @@ class TResUnet(nn.Module):
         s1 = self.layer0(x)
         s2 = self.layer1(s1)
         s3 = self.layer2(s2)
-        #s4 = self.layer3(s3)
+        s4 = self.layer3(s3)
 
-        return [s1, s2, s3]
+        b1 = self.b1(s4)
+        b2 = self.b2(s4)
+        b3 = torch.cat([b1, b2], dim=1)
 
-    def forward(self, x, return_feature_maps=False):
+        return [s1, s2, s3, b3]
+
+    def forward(self, x, return_features=False):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
         s3 = self.layer2(s2)    ## [-1, 512, h/8, w/8]
@@ -644,8 +702,8 @@ class TResUnet(nn.Module):
 
         y = self.output(d4)
 
-        if return_feature_maps:
-            return y, [s1, s2, s3]
+        if return_features:
+            return y, [s1, s2, s3, b3]
         return y
 
 
@@ -669,15 +727,20 @@ def compute_feature_alignment_loss(param_cross_dataset_features, param_dataset_s
 
     for encoder_block_index in range(len(param_cross_dataset_features)):
         cross_dataset_features = param_cross_dataset_features[encoder_block_index]
+        weighted_target = torch.zeros_like(cross_dataset_features)
 
         for dataset_id in range(len(DATASETS_TO_IDS)):
             dataset_specific_feature = param_dataset_specific_features[dataset_id][encoder_block_index].detach()
-            mse_difference_per_sample = F.mse_loss(cross_dataset_features, dataset_specific_feature, reduction='none').mean(dim=(1, 2, 3))
-            feature_alignment_loss += (param_weights[:, dataset_id] * mse_difference_per_sample).mean()
-
-    return feature_alignment_loss
-
+            #mse_difference_per_sample = F.mse_loss(cross_dataset_features, dataset_specific_feature, reduction='none').mean(dim=(1, 2, 3))
+            #feature_alignment_loss += (param_weights[:, dataset_id] * mse_difference_per_sample).mean()
+            weights = param_weights[:, dataset_id].view(-1, 1, 1, 1)
+            weighted_target += weights * dataset_specific_feature
         
+        feature_alignment_loss += F.mse_loss(cross_dataset_features, weighted_target)
+    
+    return feature_alignment_loss / len(param_cross_dataset_features)
+
+
 def calculate_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
     
@@ -711,39 +774,33 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         batched_dataset_ids = batched_dataset_ids.to(param_device, non_blocking=True, dtype=torch.long)
 
         param_optimizer.zero_grad()
-        y_pred, cross_dataset_features = param_model(batched_images, return_feature_maps=True)
+        y_pred, cross_dataset_features = param_model(batched_images, return_features=True)
         dice_bce_loss = param_criterion(y_pred, batched_masks)
 
         # Pass the batch to each dataset specific model and collect the feature maps
         with torch.no_grad():
-            # In this mode only the features from the dataset specific model corresponding to the dataset of each sample are used for feature alignment
+            num_dataset_specific_models = len(param_dataset_specific_models)
+
             if param_weighting_mode == 0:
-                dataset_specific_features = [torch.empty_like(feature) for feature in cross_dataset_features]
-                # Iterate over the unique dataset ids in the batch and pass the corresponding samples through the appropriate dataset specific model to collect the dataset specific features
-                for dataset_id in batched_dataset_ids.unique(sorted=False):
-                    dataset_id = int(dataset_id.item())
-                    indexes = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
-                    dataset_specific_feature = param_dataset_specific_models[dataset_id].encode(batched_images[indexes])
-                    for encoder_block_index in range(len(cross_dataset_features)):
-                        dataset_specific_features[encoder_block_index][indexes] = dataset_specific_feature[encoder_block_index]
-
-                # Compute the feature alignment loss using the collected dataset specific features and the student features
-                feature_alignment_loss = 0.0
-                for encoder_block_index in range(len(cross_dataset_features)):
-                    mse_difference = F.mse_loss(cross_dataset_features[encoder_block_index], dataset_specific_features[encoder_block_index], reduction='none').mean(dim=(1, 2, 3))
-                    feature_alignment_loss += mse_difference.mean()
-
-            # Otherwise, the features are collected from all dataset specific models and weighted based on the specified mode to compute the feature alignment loss
-            else:
-                dataset_specific_features = [None] * len(param_dataset_specific_models)
-                # Iterate over all dataset specific models and pass the entire batch through each model to collect the dataset specific features
+                dataset_specific_features_by_dataset_id = [[torch.empty_like(feature) for feature in cross_dataset_features] for _ in range(num_dataset_specific_models)]
+                
                 for dataset_id, dataset_specific_model in param_dataset_specific_models.items():
-                    dataset_specific_features[dataset_id] = dataset_specific_model.encode(batched_images)
+                    samples_from_dataset = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
+                    selected_images = batched_images[samples_from_dataset]
+                    dataset_specific_features = dataset_specific_model.encode(selected_images)
 
-                # Determine the weights for each dataset specific model based on the specified mode and compute the feature alignment loss
-                dataset_specific_models_weights = determine_weights_for_dataset_specific_models(batched_dataset_ids, param_weighting_mode, len(param_dataset_specific_models))
-                feature_alignment_loss = compute_feature_alignment_loss(cross_dataset_features, dataset_specific_features, dataset_specific_models_weights)
-    
+                    for encoder_block_index in range(len(cross_dataset_features)):
+                        dataset_specific_features_by_dataset_id[dataset_id][encoder_block_index][samples_from_dataset] = dataset_specific_features[encoder_block_index]
+            else:
+                dataset_specific_features_by_dataset_id = [None] * num_dataset_specific_models
+                
+                for dataset_id, dataset_specific_model in param_dataset_specific_models.items():
+                    dataset_specific_features_by_dataset_id[dataset_id] = dataset_specific_model.encode(batched_images)
+                
+            dataset_specific_models_weights = determine_weights_for_dataset_specific_models(batched_dataset_ids, param_weighting_mode, num_dataset_specific_models)
+
+        feature_alignment_loss = compute_feature_alignment_loss(cross_dataset_features, dataset_specific_features_by_dataset_id, dataset_specific_models_weights)
+        
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
         total_loss = dice_bce_loss + feature_alignment_loss
         total_loss.backward()
@@ -827,7 +884,7 @@ if __name__ == '__main__':
     # Log hyperparameters
     hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\n'
     hyperparameters_log_text += f'Epochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
-    hyperparameters_log_text += f'Weighting mode: {HYPERPARAMETERS["dsm_weight_mode"]}\nBatch composition: {HYPERPARAMETERS["batch_composition"]}\n'
+    hyperparameters_log_text += f'Weighting mode: {HYPERPARAMETERS["dsm_weight_mode"]}\n'
     print_and_save(LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation
@@ -844,16 +901,17 @@ if __name__ == '__main__':
         A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
     ])
 
-    # Create datasets for training and validation
+   # Create datasets for training and validation
     train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], param_transform=augmentation)
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'])
     
     # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
-    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_composition'])
+    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=True, param_allow_incomplete_last_batch=False)
+    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=False, param_allow_incomplete_last_batch=True)
 
     # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS)

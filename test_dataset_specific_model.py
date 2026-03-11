@@ -576,7 +576,7 @@ if __name__ == '__main__':
 
     # Load model from checkpoint
     model = TResUnet().to(DEVICE)
-    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
+    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE), strict=False)
 
     test_loss, test_metrics = evaluate_step(model, test_dataloader, DiceBCELoss(), DEVICE)
     test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}'

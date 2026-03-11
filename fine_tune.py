@@ -93,7 +93,7 @@ def freeze_module(param_module):
 # Function that loads pretrained model and freezes the encoder layers for fine-tuning
 def load_pretrained_model(param_pretrained_checkpoint_path, param_device=DEVICE, param_log_file_path=LOG_PATH):
     pretrained_model = TResUnet().to(param_device)
-    pretrained_model.load_state_dict(torch.load(param_pretrained_checkpoint_path, map_location=param_device))
+    pretrained_model.load_state_dict(torch.load(param_pretrained_checkpoint_path, map_location=param_device), strict=False)
     
     # Freeze encoder layers
     for num_layer in range(4):
@@ -101,9 +101,9 @@ def load_pretrained_model(param_pretrained_checkpoint_path, param_device=DEVICE,
         freeze_module(layer)
 
     # Freeze the bottleneck blocks
-    #for num_block in range(1, 3):
-    #    block = getattr(pretrained_model, f'b{num_block}')
-    #    freeze_module(block)
+    for num_block in range(1, 3):
+        block = getattr(pretrained_model, f'b{num_block}')
+        freeze_module(block)
 
     trainable_params = sum(p.numel() for p in pretrained_model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in pretrained_model.parameters())
@@ -567,8 +567,8 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
     param_model.train()
     for num_layer in range(4):
         getattr(param_model, f'layer{num_layer}').eval() 
-    #for num_block in range(1, 3):
-    #    getattr(param_model, f'b{num_block}').eval()
+    for num_block in range(1, 3):
+        getattr(param_model, f'b{num_block}').eval()
       
     epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
 
