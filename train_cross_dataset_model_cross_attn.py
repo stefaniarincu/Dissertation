@@ -26,7 +26,6 @@ HYPERPARAMETERS = {
     'scheduler_patience': 5,
     'early_stopping_patience': 25,
     'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
-    'batch_composition': {0: 4, 1: 4, 2: 8}, # for balanced batch sampler, the number of samples from each dataset in a batch
 }
 
 # Dictionary that maps dataset names to an id
@@ -39,7 +38,7 @@ DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) f
 DATASET_SPECIFIC_MODELS_ROOT_PATH = '/home/dragos/disertation/files'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_name: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name in DATASETS_TO_IDS.keys()}
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/s2_s3_features'
+MODELS_AND_LOG_ROOT_PATH = '/home/dragos/disertation/files/cross_dataset/biased/cross_attn'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -69,23 +68,37 @@ def load_split_filenames(param_dataset_path, param_split_file):
     masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
     return images, masks
 
-# Function that loads training and validation data from specified dataset path
+# Function that loads training and validation data from all datasets, keeping the same number of samples for each dataset by limiting to the size of the smallest dataset
 def load_data(param_dataset_paths):
-    all_train_images, all_train_masks, all_train_dataset_ids = [], [], []
-    all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
+    train_images_by_dataset, train_masks_by_dataset = {}, {}
+    validation_images_by_dataset, validation_masks_by_dataset = {}, {}
 
     for dataset_name, dataset_path in param_dataset_paths.items():
         train_images, train_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'train.txt'))
         validation_images, validation_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'val.txt'))
 
         dataset_id = DATASETS_TO_IDS[dataset_name]
-        all_train_images.extend(train_images)
-        all_train_masks.extend(train_masks)
-        all_train_dataset_ids.extend([dataset_id] * len(train_images))
+        train_images_by_dataset[dataset_id] = train_images
+        train_masks_by_dataset[dataset_id] = train_masks
+        validation_images_by_dataset[dataset_id] = validation_images
+        validation_masks_by_dataset[dataset_id] = validation_masks
 
-        all_validation_images.extend(validation_images)
-        all_validation_masks.extend(validation_masks)
-        all_validation_dataset_ids.extend([dataset_id] * len(validation_images))
+    # Keep the same number of samples for each dataset by limiting to the size of the smallest dataset
+    min_size_train = min(len(train_images_by_dataset[dataset_id]) for dataset_id in train_images_by_dataset.keys())
+    all_train_images, all_train_masks, all_train_dataset_ids = [], [], []
+    #print(f'Min size of training datasets: {min_size_train}')
+    for dataset_id in train_images_by_dataset.keys():
+        all_train_images.extend(train_images_by_dataset[dataset_id][:min_size_train])
+        all_train_masks.extend(train_masks_by_dataset[dataset_id][:min_size_train])
+        all_train_dataset_ids.extend([dataset_id] * min_size_train)
+
+    min_size_validation = min(len(validation_images_by_dataset[dataset_id]) for dataset_id in validation_images_by_dataset.keys())
+    all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
+    #print(f'Min size of validation datasets: {min_size_validation}')
+    for dataset_id in validation_images_by_dataset.keys():
+        all_validation_images.extend(validation_images_by_dataset[dataset_id][:min_size_validation])
+        all_validation_masks.extend(validation_masks_by_dataset[dataset_id][:min_size_validation])
+        all_validation_dataset_ids.extend([dataset_id] * min_size_validation)
 
     return (all_train_images, all_train_masks, all_train_dataset_ids), (all_validation_images, all_validation_masks, all_validation_dataset_ids)
 
@@ -169,22 +182,27 @@ def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_
     return epoch, best_validation_metric, num_epochs_no_improvement
 
 class BalancedBatchSampler(Sampler):
-    def __init__(self, param_dataset_ids, param_batch_composition):
+    '''
+    For batch_size=16 and 3 datasets:
+        batch 1 -> 6, 5, 5 samples from dataset 1, 2, 3
+        batch 2 -> 5, 6, 5 samples from dataset 1, 2, 3
+        batch 3 -> 5, 5, 6 samples from dataset 1, 2, 3
+        and so on
+    '''
+    def __init__(self, param_dataset_ids, param_batch_size, param_shuffle=True, param_allow_incomplete_last_batch=False):
         super().__init__()
-
         self.dataset_ids = np.array(param_dataset_ids, dtype=np.int64)
-        self.batch_composition = param_batch_composition
+        self.batch_size = param_batch_size
+        self.shuffle = param_shuffle
+        self.allow_incomplete_last_batch = param_allow_incomplete_last_batch
         self.epoch = 0
 
-        self.ids_indices = {dataset_id: np.where(self.dataset_ids == dataset_id)[0] for dataset_id in self.batch_composition.keys()}
-
-        batches_per_dataset = []
-        for dataset_id in self.batch_composition.keys():
-            num_samples = len(self.ids_indices[dataset_id])
-            num_batches = int(np.ceil(num_samples / self.batch_composition[dataset_id]))
-            batches_per_dataset.append(num_batches)
-
-        self.num_batches = max(batches_per_dataset)
+        self.unique_dataset_ids = sorted(np.unique(self.dataset_ids).tolist())
+        self.indices_per_dataset = {dataset_id: np.where(self.dataset_ids == dataset_id)[0].tolist() for dataset_id in self.unique_dataset_ids}
+        
+        self.base_count = self.batch_size // len(self.indices_per_dataset)
+        self.remainder = self.batch_size % len(self.indices_per_dataset)
+        self.num_batches = int(np.ceil(len(self.dataset_ids) / self.batch_size))
 
     def set_epoch(self, param_epoch):
         self.epoch = param_epoch
@@ -193,32 +211,68 @@ class BalancedBatchSampler(Sampler):
         return self.num_batches
     
     def __iter__(self):
-        random_generator = random.Random(SEED + self.epoch)
-        
+        if self.shuffle:
+            random_generator = random.Random(SEED + self.epoch)
+
         shuffled_indices, current_indices = {}, {}
-        for dataset_id in self.batch_composition.keys():
-            dataset_indices = self.ids_indices[dataset_id].tolist()
-            random_generator.shuffle(dataset_indices)
+        for dataset_id in self.unique_dataset_ids:
+            dataset_indices = self.indices_per_dataset[dataset_id].copy()
+            
+            if self.shuffle:
+                random_generator.shuffle(dataset_indices)
+            
             shuffled_indices[dataset_id] = dataset_indices
             current_indices[dataset_id] = 0
 
-        for _ in range(self.num_batches):
-            batch =[]
+        for batch_index in range(self.num_batches):
+            sample_counts_per_dataset = {dataset_id: self.base_count for dataset_id in self.unique_dataset_ids}
+            
+            for extra_index in range(self.remainder):
+                dataset_id = self.unique_dataset_ids[(batch_index + extra_index + self.epoch) % len(self.unique_dataset_ids)]
+                sample_counts_per_dataset[dataset_id] += 1
 
-            for dataset_id, num_samples_per_batch in self.batch_composition.items():
+            batch = []
+
+            for dataset_id in self.unique_dataset_ids:
+                num_required_samples = sample_counts_per_dataset[dataset_id]
                 dataset_indices = shuffled_indices[dataset_id]
-                start_idx = current_indices[dataset_id]
-                end_idx = start_idx + num_samples_per_batch
+            
+                if self.allow_incomplete_last_batch:
+                    start_index = current_indices[dataset_id]
+                    num_remaining_samples = len(dataset_indices) - start_index
 
-                if end_idx > len(dataset_indices):
-                    random_generator.shuffle(dataset_indices)
-                    start_idx = 0
-                    end_idx = num_samples_per_batch
+                    num_samples_to_take = min(num_required_samples, num_remaining_samples)
+                    if num_samples_to_take > 0:
+                        end_index = start_index + num_samples_to_take
+                        batch.extend(dataset_indices[start_index:end_index])
+                        current_indices[dataset_id] = end_index
+                else:
+                    selected_samples = []
+                    while len(selected_samples) < num_required_samples:
+                        start_index = current_indices[dataset_id]
+                        num_remaining_samples = len(dataset_indices) - start_index
+                        needed_samples = num_required_samples - len(selected_samples)
 
-                batch.extend(dataset_indices[start_idx:end_idx])
-                current_indices[dataset_id] = end_idx
+                        if num_remaining_samples >= needed_samples:
+                            end_index = start_index + needed_samples
+                            selected_samples.extend(dataset_indices[start_index:end_index])
+                            current_indices[dataset_id] = end_index
+                        else:
+                            if num_remaining_samples > 0:
+                                selected_samples.extend(dataset_indices[start_index:])
 
-            random_generator.shuffle(batch)
+                            if self.shuffle:
+                                random_generator.shuffle(dataset_indices)
+
+                            current_indices[dataset_id] = 0
+
+                    batch.extend(selected_samples)
+
+            if len(batch) == 0:
+                break
+
+            if self.shuffle:
+                random_generator.shuffle(batch)
             yield batch
 
 # Segmentation Dataset class for loading images and masks
@@ -618,11 +672,15 @@ class TResUnet(nn.Module):
         s1 = self.layer0(x)
         s2 = self.layer1(s1)
         s3 = self.layer2(s2)
-        #s4 = self.layer3(s3)
+        s4 = self.layer3(s3)
 
-        return [s1, s2, s3]
+        b1 = self.b1(s4)
+        b2 = self.b2(s4)
+        b3 = torch.cat([b1, b2], dim=1)
 
-    def forward(self, x, return_feature_maps=False):
+        return s1, s2, s3, b3
+
+    def forward(self, x):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
         s3 = self.layer2(s2)    ## [-1, 512, h/8, w/8]
@@ -637,12 +695,161 @@ class TResUnet(nn.Module):
         d3 = self.d3(d2, s1)
         d4 = self.d4(d3, x)
 
-        y = self.output(d4)
+        return self.output(d4)
+    
+class ConvolveResidualBlock(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        # Set out_channels to be one-third of in_channels
+        self.out_channels = in_channels // 3
 
-        if return_feature_maps:
-            return y, [s1, s2, s3]
-        return y
+        self.conv1 = nn.Conv2d(in_channels, self.out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(self.out_channels)
+        self.relu = nn.ReLU(inplace=True)
 
+        self.conv2 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(self.out_channels)
+
+        # For matching dimensions in case the input and output channels are different
+        self.shortcut = nn.Conv2d(in_channels, self.out_channels, kernel_size=1, stride=1,
+                                   padding=0) if in_channels != self.out_channels else None
+
+    def forward(self, x):
+        # Apply the first convolutional layer followed by ReLU
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        # Apply the second convolutional layer
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        # Add the shortcut connection
+        if self.shortcut is not None:
+            x = self.shortcut(x)
+
+        out += x  # Residual connection
+        out = self.relu(out)  # Final activation
+
+        return out
+    
+class CrossAttentionBlock(nn.Module):
+    def __init__(self, in_channels, num_heads=8):
+        super().__init__()
+        self.query = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.key = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.value = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.num_heads = num_heads
+        self.scale = (in_channels // num_heads) ** -0.5
+        self.alpha = nn.Parameter(torch.ones(1))  # Learnable scaling factor
+
+        # Additional layers for enhancing the model
+        self.fc = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        )
+        # Adjust normalization to handle channel dimension correctly
+        self.norm1 = nn.LayerNorm(in_channels)  # This needs to be applied differently
+        self.norm2 = nn.LayerNorm(in_channels)
+
+    def forward(self, x1, x2):
+        b, c, h, w = x1.shape
+
+        # Calculate queries, keys, and values for both inputs
+        q1 = self.query(x1).reshape(b, self.num_heads, c // self.num_heads, h * w)
+        k2 = self.key(x2).reshape(b, self.num_heads, c // self.num_heads, h * w)
+        v2 = self.value(x2).reshape(b, self.num_heads, c // self.num_heads, h * w)
+
+        # Cross-attention between x1 and x2
+        attn_weights = torch.einsum("bhqd,bhkd->bhqk", q1, k2) * self.scale
+        attn_weights = attn_weights.softmax(dim=-1)
+
+        # Apply attention weights to the values of x2
+        attn_output = torch.einsum("bhqk,bhvd->bhqd", attn_weights, v2).reshape(b, c, h, w)
+
+        # Apply normalization and a feed-forward network to enhance the attention output
+        # Apply layer norm on the last dimension (channels)
+        attn_output = attn_output.permute(0, 2, 3, 1).reshape(-1, c)  # Flatten for LayerNorm
+        attn_output = self.norm1(attn_output)  # Normalizing the flattened tensor
+        attn_output = attn_output.view(b, h, w, c).permute(0, 3, 1, 2)  # Reshape back
+        attn_output = attn_output + x1  # Add the original input
+
+        attn_output = self.fc(attn_output)
+        attn_output = attn_output.permute(0, 2, 3, 1).reshape(-1, c)  # Flatten for LayerNorm
+        attn_output = self.norm2(attn_output)  # Normalize again
+        attn_output = attn_output.view(b, h, w, c).permute(0, 3, 1, 2)  # Reshape back
+
+        # Dynamic weighted aggregation with residual
+        return x1 + self.alpha * attn_output  # Learnable weight to adjust influence
+
+class TResUnetGenericModel(nn.Module):
+    def __init__(self, dataset_specific_paths=None, device=DEVICE):
+        super().__init__()
+
+        # Load pre-trained dataset-specific models
+        self.dataset_specific_1 = TResUnet()
+        self.dataset_specific_2 = TResUnet()
+        self.dataset_specific_3 = TResUnet()
+
+        if dataset_specific_paths is not None:
+            assert len(dataset_specific_paths) == 3, 'Three dataset specific models paths must be provided.'
+            self.dataset_specific_1.load_state_dict(torch.load(dataset_specific_paths[0], map_location=device), strict=False)
+            self.dataset_specific_2.load_state_dict(torch.load(dataset_specific_paths[1], map_location=device), strict=False)
+            self.dataset_specific_3.load_state_dict(torch.load(dataset_specific_paths[2], map_location=device), strict=False)
+
+        # Cross-attention blocks for each encoder level
+        self.cross_attn1 = CrossAttentionBlock(64)
+        self.cross_attn2 = CrossAttentionBlock(256)
+        self.cross_attn3 = CrossAttentionBlock(512)
+
+        # Convolutional blocks for combined encoder outputs
+        self.conv_1 = ConvolveResidualBlock(1536)
+        self.conv_2 = ConvolveResidualBlock(1536)
+        self.conv_3 = ConvolveResidualBlock(768)
+        self.conv_4 = ConvolveResidualBlock(192)
+
+        # Decoder blocks
+        self.d1 = DecoderBlock([512, 512], 256)
+        self.d2 = DecoderBlock([256, 256], 128)
+        self.d3 = DecoderBlock([128, 64], 64)
+        self.d4 = DecoderBlock([64, 3], 32)
+
+        # Final output layer
+        self.output = nn.Conv2d(32, 1, kernel_size=1)
+
+    def forward(self, x):
+        # Encode features from each dataset specific model
+        ds1_s1, ds1_s2, ds1_s3, ds1_b = self.dataset_specific_1.encode(x)
+        ds2_s1, ds2_s2, ds2_s3, ds2_b = self.dataset_specific_2.encode(x)
+        ds3_s1, ds3_s2, ds3_s3, ds3_b = self.dataset_specific_3.encode(x)
+
+        # Cross-attention on encoder outputs
+        ds1_s1 = self.cross_attn1(ds1_s1, ds2_s1) + self.cross_attn1(ds1_s1, ds3_s1) + self.cross_attn1(ds2_s1, ds3_s1)
+        ds1_s2 = self.cross_attn2(ds1_s2, ds2_s2) + self.cross_attn2(ds1_s2, ds3_s2) + self.cross_attn2(ds2_s2, ds3_s2)
+        ds1_s3 = self.cross_attn3(ds1_s3, ds2_s3) + self.cross_attn3(ds1_s3, ds3_s3) + self.cross_attn3(ds2_s3, ds3_s3)
+
+        # Concatenate the encoder outputs with cross-attention applied
+        combined_s1 = torch.cat([ds1_s1, ds2_s1, ds3_s1], dim=1)
+        combined_s2 = torch.cat([ds1_s2, ds2_s2, ds3_s2], dim=1)
+        combined_s3 = torch.cat([ds1_s3, ds2_s3, ds3_s3], dim=1)
+
+        # Concatenate bottleneck features from all dataset specific models
+        combined_bottleneck = torch.cat((ds1_b, ds2_b, ds3_b), dim=1)
+
+        # Convolution and decoder layers
+        conv_bottleneck = self.conv_1(combined_bottleneck)
+        conv_s3 = self.conv_2(combined_s3)
+        conv_s2 = self.conv_3(combined_s2)
+        conv_s1 = self.conv_4(combined_s1)
+
+        # Decoder pass
+        d1 = self.d1(conv_bottleneck, conv_s3)
+        d2 = self.d2(d1, conv_s2)
+        d3 = self.d3(d2, conv_s1)
+        d4 = self.d4(d3, x)
+
+        return self.output(d4)
 
 class DiceBCELoss(nn.Module):
     def __init__(self):
@@ -822,7 +1029,7 @@ if __name__ == '__main__':
     # Log hyperparameters
     hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\n'
     hyperparameters_log_text += f'Epochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
-    hyperparameters_log_text += f'Weighting mode: {HYPERPARAMETERS["dsm_weight_mode"]}\nBatch composition: {HYPERPARAMETERS["batch_composition"]}\n'
+    hyperparameters_log_text += f'Weighting mode: {HYPERPARAMETERS["dsm_weight_mode"]}\n'
     print_and_save(LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation
@@ -844,11 +1051,12 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'])
     
     # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
-    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_composition'])
+    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=True, param_allow_incomplete_last_batch=False)
+    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=False, param_allow_incomplete_last_batch=True)
 
     # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS)
