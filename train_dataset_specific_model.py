@@ -624,7 +624,7 @@ if __name__ == '__main__':
 
     # Load the images and masks file names for training and validation
     (train_images_paths, train_masks_paths) = load_split_data(DATASET_PATH, 'train.txt')
-    (validation_images_paths, validation_masks_paths) = load_split_data(DATASET_PATH, 'validation.txt')
+    (validation_images_paths, validation_masks_paths) = load_split_data(DATASET_PATH, 'val.txt')
     train_images_paths, train_masks_paths = shuffle_data(train_images_paths, train_masks_paths)
     dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
     print_and_save(TRAIN_LOG_PATH, dataset_log_text)
