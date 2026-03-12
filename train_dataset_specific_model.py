@@ -38,7 +38,8 @@ DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
-LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
+TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
+TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
 # Function that sets constant seed for reproducibility
 def seed_all(param_seed=SEED):
@@ -51,6 +52,20 @@ def seed_all(param_seed=SEED):
     torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = False
 
+# Function that creates a log file if it doesn't exist and writes the start datetime to the log file
+def create_log_file(param_log_path):
+    # If it exists write the start datetime else create the file and write the start datetime
+    if os.path.exists(param_log_path):
+        print('Log file already exists')
+    else:
+        with open(param_log_path, 'w') as f:
+            f.write(f'\n')
+            f.close()
+    
+    # Save the start datetime to the log file
+    start_datetime = str(datetime.datetime.now())
+    print_and_save(param_log_path, start_datetime)
+
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):
     print(param_text)
@@ -58,24 +73,15 @@ def print_and_save(param_file_path, param_text):
         file.write(param_text)
         file.write('\n')
 
-# Function that loads all file names for images and masks in the dataset
-def load_split_filenames(param_dataset_path, param_split_file):
-    with open(param_split_file, 'r') as f:
+# Function that loads training and validation data from specified path
+def load_split_data(param_dataset_path, param_split_filename):
+    split_file = os.path.join(param_dataset_path, param_split_filename)
+    with open(split_file, 'r') as f:
         file_names = [line.strip() for line in f if line.strip()]
 
-    images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
-    masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
-    return images, masks
-
-# Function that loads training and validation data from specified path
-def load_data(param_dataset_path):
-    train_split_file = os.path.join(param_dataset_path, 'train.txt')
-    validation_split_file = os.path.join(param_dataset_path, 'val.txt')
-
-    train_images_path, train_masks_path = load_split_filenames(param_dataset_path, train_split_file)
-    validation_images_path, validation_masks_path = load_split_filenames(param_dataset_path, validation_split_file)
-
-    return (train_images_path, train_masks_path), (validation_images_path, validation_masks_path)
+    image_paths = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
+    mask_maths = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
+    return (image_paths, mask_maths)
 
 # Function that shuffles the images and masks
 def shuffle_data(param_images_path, param_masks_path):
@@ -506,7 +512,7 @@ class DiceBCELoss(nn.Module):
         return bce_loss + dice_loss
 
 
-def calculate_metrics(y_true, y_pred):
+def compute_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
 
     y_pred = torch.sigmoid(y_pred)
@@ -548,7 +554,7 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         # Calculate metrics
         batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
         for yt, yp in zip(batched_masks, y_pred):
-            score = calculate_metrics(yt, yp)
+            score = compute_metrics(yt, yp)
             batch_jaccard.append(score[0])
             batch_dice.append(score[1])
             batch_recall.append(score[2])
@@ -584,7 +590,7 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
             # Calculate metrics
             batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
             for yt, yp in zip(batched_masks, y_pred):
-                score = calculate_metrics(yt, yp)
+                score = compute_metrics(yt, yp)
                 batch_jaccard.append(score[0])
                 batch_dice.append(score[1])
                 batch_recall.append(score[2])
@@ -605,28 +611,23 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
 
 if __name__ == '__main__':
     seed_all(SEED)
-
-    if os.path.exists(LOG_PATH):
-        print('Log file exists')
-    else:
-        train_log_file = open(LOG_PATH, 'w')
-        train_log_file.write('\n')
-        train_log_file.close()
+    create_log_file(TRAIN_LOG_PATH)
 
     # Log the start time of training
     start_datetime = str(datetime.datetime.now())
-    print_and_save(LOG_PATH, start_datetime)
+    print_and_save(TRAIN_LOG_PATH, start_datetime)
 
     # Log hyperparameters
     hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\n'
     hyperparameters_log_text += f'Epochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
-    print_and_save(LOG_PATH, hyperparameters_log_text)
+    print_and_save(TRAIN_LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation
-    (train_images_paths, train_masks_paths), (validation_images_paths, validation_masks_paths) = load_data(DATASET_PATH)
+    (train_images_paths, train_masks_paths) = load_split_data(DATASET_PATH, 'train.txt')
+    (validation_images_paths, validation_masks_paths) = load_split_data(DATASET_PATH, 'validation.txt')
     train_images_paths, train_masks_paths = shuffle_data(train_images_paths, train_masks_paths)
     dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
-    print_and_save(LOG_PATH, dataset_log_text)
+    print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
     # Define data augmentation transforms using albumentations
     augmentation = A.Compose([
@@ -662,7 +663,7 @@ if __name__ == '__main__':
 
         if validation_metrics[1] > best_validation_metric:
             data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(LOG_PATH, data_str)
+            print_and_save(TRAIN_LOG_PATH, data_str)
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
@@ -675,8 +676,22 @@ if __name__ == '__main__':
         epoch_log_text = f'Epoch {epoch+1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
         epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
         epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
-        print_and_save(LOG_PATH, epoch_log_text)
+        print_and_save(TRAIN_LOG_PATH, epoch_log_text)
 
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
+            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
             break
+
+    # Create the test log file
+    create_log_file(TEST_LOG_PATH)
+
+    # Load test data and create dataloader
+    test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
+    test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'])
+    test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
+    
+    # Load best model and check its performance
+    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE), strict=False)
+    test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
+    test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n'
+    print_and_save(TEST_LOG_PATH, test_log_text)
