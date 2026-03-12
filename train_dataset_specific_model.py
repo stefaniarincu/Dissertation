@@ -72,7 +72,7 @@ def print_and_save(file_path, text):
         file.write(text)
         file.write('\n')
 
-# Function that loads training and validation data from specified path
+# Function that loads a specified split data from specified path
 def load_split_data(dataset_path, split_filename):
     split_file = os.path.join(dataset_path, split_filename)
     with open(split_file, 'r') as f:
@@ -88,25 +88,24 @@ def shuffle_data(images_paths, masks_paths):
     return images_paths, masks_paths
 
 # Segmentation Dataset class for loading images and masks
-class SegmentationDataset(Dataset):
-    def __init__(self, images_paths, masks_paths, size, transform=None):
+class BaseSegmentationDataset(Dataset):
+    def __init__(self, images_paths, masks_paths, image_size, transform=None):
         super().__init__()
 
         self.images_paths = images_paths
         self.masks_paths = masks_paths
-        self.num_samples = len(images_paths)
-        self.size = size
+        self.image_size = image_size
         self.transform = transform
 
     def __len__(self):
-        return self.num_samples
-    
-    def __getitem__(self, index):
+        return len(self.images_paths)
+
+    def load_sample(self, index):
         image = cv.imread(self.images_paths[index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_paths[index], cv.IMREAD_GRAYSCALE)
 
-        image = cv.resize(image, self.size, interpolation=cv.INTER_LINEAR)
-        mask = cv.resize(mask, self.size, interpolation=cv.INTER_NEAREST)
+        image = cv.resize(image, self.image_size, interpolation=cv.INTER_LINEAR)
+        mask = cv.resize(mask, self.image_size, interpolation=cv.INTER_NEAREST)
 
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)
@@ -119,6 +118,11 @@ class SegmentationDataset(Dataset):
         mask = (mask > 127).astype(np.float32)
         mask = torch.from_numpy(mask).unsqueeze(0)
 
+        return image, mask
+
+class SegmentationDataset(BaseSegmentationDataset):
+    def __getitem__(self, index):
+        image, mask = self.load_sample(index)
         return image, mask
 
 # RESNET BACKBONE
@@ -690,8 +694,12 @@ if __name__ == '__main__':
     # Create the test log file
     create_log_file(TEST_LOG_PATH)
 
-    # Load test data and create dataloader
+    # Load test data
     test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
+    dataset_log_text = f'Test set size: {len(test_images_paths)}\n'
+    print_and_save(TEST_LOG_PATH, dataset_log_text)
+    
+    # Create dataset and dataloader for the test set of the current dataset
     test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'])
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
     
