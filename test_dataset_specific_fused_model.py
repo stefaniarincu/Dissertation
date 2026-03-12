@@ -117,11 +117,6 @@ class SegmentationDataset(Dataset):
         image = cv.imread(self.images_path[param_index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_path[param_index], cv.IMREAD_GRAYSCALE)
 
-        if self.transform is not None:
-            augmentations = self.transform(image=image, mask=mask)
-            image = augmentations['image']
-            mask = augmentations['mask']
-
         image = cv.resize(image, self.size, interpolation=cv.INTER_LINEAR)
         image = torch.from_numpy(image).permute(2, 0, 1).float()
         image.div_(255.0)
