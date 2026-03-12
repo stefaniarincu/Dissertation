@@ -42,8 +42,9 @@ def seed_all(param_seed=SEED):
     np.random.seed(param_seed)
     torch.manual_seed(param_seed)
     torch.cuda.manual_seed(param_seed)
+    torch.cuda.manual_seed_all(param_seed)
     torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    #torch.backends.cudnn.benchmark = False
 
 # Function that prints a message and also saves it to a specified file
 def print_and_save(param_file_path, param_text):
@@ -54,7 +55,9 @@ def print_and_save(param_file_path, param_text):
 
 # Function that loads all file names for images and masks in a dataset
 def load_split_filenames(param_dataset_path, param_split_file):
-    file_names = open(param_split_file, 'r').read().split('\n')[:-1]
+    with open(param_split_file, 'r') as f:
+        file_names = [line.strip() for line in f if line.strip()]
+
     images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
     masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
     return images, masks
@@ -475,8 +478,8 @@ class DiceBCELoss(nn.Module):
         bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
         
         inputs = torch.sigmoid(inputs)
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
+        #inputs = inputs.view(-1)
+        #targets = targets.view(-1)
 
         intersection = (inputs * targets).sum()
         dice_loss = 1.0 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
