@@ -42,68 +42,68 @@ TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
 # Function that sets constant seed for reproducibility
-def seed_all(param_seed=SEED):
-    random.seed(param_seed)
-    os.environ['PYTHONHASHSEED'] = str(param_seed)
-    np.random.seed(param_seed)
-    torch.manual_seed(param_seed)
-    torch.cuda.manual_seed(param_seed)
-    torch.cuda.manual_seed_all(param_seed)
+def seed_all(seed):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = False
 
-# Function that creates a log file if it doesn't exist and writes the start datetime to the log file
-def create_log_file(param_log_path):
+# Function that ensures that a log file exists and writes the start datetime to it
+def create_log_file(log_path):
     # If it exists write the start datetime else create the file and write the start datetime
-    if os.path.exists(param_log_path):
+    if os.path.exists(log_path):
         print('Log file already exists')
     else:
-        with open(param_log_path, 'w') as f:
+        with open(log_path, 'w') as f:
             f.write(f'\n')
-            f.close()
     
     # Save the start datetime to the log file
     start_datetime = str(datetime.datetime.now())
-    print_and_save(param_log_path, start_datetime)
+    print_and_save(log_path, start_datetime)
 
 # Function that prints a message and also saves it to a specified file
-def print_and_save(param_file_path, param_text):
-    print(param_text)
-    with open(param_file_path, 'a') as file:
-        file.write(param_text)
+def print_and_save(file_path, text):
+    print(text)
+    with open(file_path, 'a') as file:
+        file.write(text)
         file.write('\n')
 
 # Function that loads training and validation data from specified path
-def load_split_data(param_dataset_path, param_split_filename):
-    split_file = os.path.join(param_dataset_path, param_split_filename)
+def load_split_data(dataset_path, split_filename):
+    split_file = os.path.join(dataset_path, split_filename)
     with open(split_file, 'r') as f:
         file_names = [line.strip() for line in f if line.strip()]
 
-    image_paths = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
-    mask_maths = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
-    return (image_paths, mask_maths)
+    images_paths = [os.path.join(dataset_path, 'images', name) for name in file_names]
+    masks_paths = [os.path.join(dataset_path, 'masks', name) for name in file_names]
+    return images_paths, masks_paths
 
 # Function that shuffles the images and masks
-def shuffle_data(param_images_path, param_masks_path):
-    param_images_path, param_masks_path = shuffle(param_images_path, param_masks_path, random_state=SEED)
-    return param_images_path, param_masks_path
+def shuffle_data(images_paths, masks_paths):
+    images_paths, masks_paths = shuffle(images_paths, masks_paths, random_state=SEED)
+    return images_paths, masks_paths
 
 # Segmentation Dataset class for loading images and masks
 class SegmentationDataset(Dataset):
-    def __init__(self, param_images_path, param_masks_path, param_size, param_transform=None):
+    def __init__(self, images_paths, masks_paths, size, transform=None):
         super().__init__()
-        self.images_path = param_images_path
-        self.masks_path = param_masks_path
-        self.num_samples = len(param_images_path)
-        self.size = param_size
-        self.transform = param_transform
+
+        self.images_paths = images_paths
+        self.masks_paths = masks_paths
+        self.num_samples = len(images_paths)
+        self.size = size
+        self.transform = transform
 
     def __len__(self):
         return self.num_samples
     
-    def __getitem__(self, param_index):
-        image = cv.imread(self.images_path[param_index], cv.IMREAD_COLOR)
-        mask = cv.imread(self.masks_path[param_index], cv.IMREAD_GRAYSCALE)
+    def __getitem__(self, index):
+        image = cv.imread(self.images_paths[index], cv.IMREAD_COLOR)
+        mask = cv.imread(self.masks_paths[index], cv.IMREAD_GRAYSCALE)
 
         image = cv.resize(image, self.size, interpolation=cv.INTER_LINEAR)
         mask = cv.resize(mask, self.size, interpolation=cv.INTER_NEAREST)
@@ -137,7 +137,7 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_layer=None):
-        super(BasicBlock, self).__init__()
+        super().__init__()
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -179,7 +179,7 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_layer=None):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -222,7 +222,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
-        super(ResNet, self).__init__()
+        super().__init__()
         
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -337,6 +337,7 @@ def resnet50(pretrained=True, progress=True, **kwargs):
 class ResidualBlock(nn.Module):
     def __init__(self, in_c, out_c):
         super().__init__()
+
         self.relu = nn.ReLU()
         self.conv = nn.Sequential(
             nn.Conv2d(in_c, out_c, kernel_size=3, padding=1),
@@ -534,20 +535,24 @@ def compute_metrics(y_true, y_pred):
     return [score_jaccard, score_dice, score_recall, score_precision]
 
 
-def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_device):
-    param_model.train()
+def train_step(model, dataloader, optimizer, criterion, device):
+    model.train()
     
-    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
+    epoch_loss = 0.0
+    epoch_jaccard = 0.0
+    epoch_dice = 0.0
+    epoch_recall = 0.0
+    epoch_precision = 0.0
 
-    for batched_images, batched_masks in param_dataloader:
-        batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
-        batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
+    for batched_images, batched_masks in dataloader:
+        batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
+        batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
-        param_optimizer.zero_grad()
-        y_pred = param_model(batched_images)
-        loss = param_criterion(y_pred, batched_masks)
+        optimizer.zero_grad()
+        y_pred = model(batched_images)
+        loss = criterion(y_pred, batched_masks)
         loss.backward()
-        param_optimizer.step()
+        optimizer.step()
 
         epoch_loss += loss.item()
 
@@ -565,25 +570,29 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         epoch_recall += np.mean(batch_recall)
         epoch_precision += np.mean(batch_precision)
 
-    epoch_loss /= len(param_dataloader)
-    epoch_jaccard /= len(param_dataloader)
-    epoch_dice /= len(param_dataloader)
-    epoch_recall /= len(param_dataloader)
-    epoch_precision /= len(param_dataloader)
+    epoch_loss /= len(dataloader)
+    epoch_jaccard /= len(dataloader)
+    epoch_dice /= len(dataloader)
+    epoch_recall /= len(dataloader)
+    epoch_precision /= len(dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
-def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
-    param_model.eval()
+def evaluate_step(model, dataloader, criterion, device):
+    model.eval()
 
-    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
+    epoch_loss = 0.0
+    epoch_jaccard = 0.0
+    epoch_dice = 0.0
+    epoch_recall = 0.0
+    epoch_precision = 0.0
 
     with torch.no_grad():
-        for batched_images, batched_masks in param_dataloader:
-            batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
-            batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
+        for batched_images, batched_masks in dataloader:
+            batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
+            batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
-            y_pred = param_model(batched_images)
-            loss = param_criterion(y_pred, batched_masks)
+            y_pred = model(batched_images)
+            loss = criterion(y_pred, batched_masks)
 
             epoch_loss += loss.item()
 
@@ -601,11 +610,11 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
             epoch_recall += np.mean(batch_recall)
             epoch_precision += np.mean(batch_precision)
 
-    epoch_loss /= len(param_dataloader)
-    epoch_jaccard /= len(param_dataloader)
-    epoch_dice /= len(param_dataloader)
-    epoch_recall /= len(param_dataloader)
-    epoch_precision /= len(param_dataloader)
+    epoch_loss /= len(dataloader)
+    epoch_jaccard /= len(dataloader)
+    epoch_dice /= len(dataloader)
+    epoch_recall /= len(dataloader)
+    epoch_precision /= len(dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
 
@@ -613,18 +622,14 @@ if __name__ == '__main__':
     seed_all(SEED)
     create_log_file(TRAIN_LOG_PATH)
 
-    # Log the start time of training
-    start_datetime = str(datetime.datetime.now())
-    print_and_save(TRAIN_LOG_PATH, start_datetime)
-
     # Log hyperparameters
     hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\n'
     hyperparameters_log_text += f'Epochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
     print_and_save(TRAIN_LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation
-    (train_images_paths, train_masks_paths) = load_split_data(DATASET_PATH, 'train.txt')
-    (validation_images_paths, validation_masks_paths) = load_split_data(DATASET_PATH, 'val.txt')
+    train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
+    validation_images_paths, validation_masks_paths = load_split_data(DATASET_PATH, 'val.txt')
     train_images_paths, train_masks_paths = shuffle_data(train_images_paths, train_masks_paths)
     dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
     print_and_save(TRAIN_LOG_PATH, dataset_log_text)
@@ -638,7 +643,7 @@ if __name__ == '__main__':
     ])
 
     # Create datasets for training and validation
-    train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, HYPERPARAMETERS['image_size'], param_transform=augmentation)
+    train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, HYPERPARAMETERS['image_size'], transform=augmentation)
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'])
     
     # Create dataloaders
@@ -691,7 +696,7 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
     
     # Load best model and check its performance
-    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE), strict=False)
+    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
     test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
     test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n'
     print_and_save(TEST_LOG_PATH, test_log_text)
