@@ -590,7 +590,7 @@ def evaluate_step(model, dataloader, criterion, device):
     epoch_recall = 0.0
     epoch_precision = 0.0
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for batched_images, batched_masks in dataloader:
             batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)

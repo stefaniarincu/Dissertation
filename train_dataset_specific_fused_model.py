@@ -28,7 +28,6 @@ HYPERPARAMETERS = {
 }
 
 # Dictionary that maps dataset names to an id
-DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
 IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 
 # Constant for the root path for all necessary files
@@ -36,11 +35,11 @@ ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset paths
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
-DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name, dataset_id in DATASETS_TO_IDS.items()}
+DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
 DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
-DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_name, dataset_id in DATASETS_TO_IDS.items()}
+DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
 MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted'

@@ -28,20 +28,21 @@ HYPERPARAMETERS = {
 }
 
 # Dictionary that maps dataset names to an id
-DATASETS_TO_IDS = {'isles': 0, 'bmshare': 1, 'brats': 2}
+IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset paths
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
-DATASETS_PATHS = {dataset_name: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_name in DATASETS_TO_IDS.keys()}
+DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
 MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/only_segmentation'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
-LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
+TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
+TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_cross_dataset.txt'
 # Constant for resume checkpoint path if the training stops for whatever reason
 RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_last_resume.pth'
 
@@ -56,84 +57,83 @@ def seed_all(param_seed=SEED):
     torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = False
 
+# Function that ensures that a log file exists and writes the start datetime to it
+def create_log_file(log_path):
+    # If it exists write the start datetime else create the file and write the start datetime
+    if os.path.exists(log_path):
+        print('Log file already exists')
+    else:
+        with open(log_path, 'w') as f:
+            f.write(f'\n')
+    
+    # Save the start datetime to the log file
+    start_datetime = str(datetime.datetime.now())
+    print_and_save(log_path, start_datetime)
+
 # Function that prints a message and also saves it to a specified file
-def print_and_save(param_file_path, param_text):
-    print(param_text)
-    with open(param_file_path, 'a') as file:
-        file.write(param_text)
+def print_and_save(file_path, text):
+    print(text)
+    with open(file_path, 'a') as file:
+        file.write(text)
         file.write('\n')
 
-# Function that loads all file names for images and masks in a dataset
-def load_split_filenames(param_dataset_path, param_split_file):
-    with open(param_split_file, 'r') as f:
+# Function that loads a specified split data from specified path
+def load_split_data(dataset_path, split_filename):
+    split_file = os.path.join(dataset_path, split_filename)
+    with open(split_file, 'r') as f:
         file_names = [line.strip() for line in f if line.strip()]
-    
-    images = [os.path.join(param_dataset_path, 'images', name) for name in file_names]
-    masks = [os.path.join(param_dataset_path, 'masks', name) for name in file_names]
-    return images, masks
 
-# Function that loads training and validation data from all datasets, keeping the same number of samples for each dataset by limiting to the size of the smallest dataset
-def load_data(param_dataset_paths):
-    train_images_by_dataset, train_masks_by_dataset = {}, {}
-    validation_images_by_dataset, validation_masks_by_dataset = {}, {}
+    images_paths = [os.path.join(dataset_path, 'images', name) for name in file_names]
+    masks_paths = [os.path.join(dataset_path, 'masks', name) for name in file_names]
+    return images_paths, masks_paths
 
-    for dataset_name, dataset_path in param_dataset_paths.items():
-        train_images, train_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'train.txt'))
-        validation_images, validation_masks = load_split_filenames(dataset_path, os.path.join(dataset_path, 'val.txt'))
-
-        dataset_id = DATASETS_TO_IDS[dataset_name]
-        train_images_by_dataset[dataset_id] = train_images
-        train_masks_by_dataset[dataset_id] = train_masks
-        validation_images_by_dataset[dataset_id] = validation_images
-        validation_masks_by_dataset[dataset_id] = validation_masks
+# Function that loads data from all datasets
+def load_split_data_all_datasets(datasets_paths, split_filename):
+    images_by_dataset_id, masks_by_dataset_id = {}, {}
+    # Collect the images and masks paths for each dataset and store them in a dictionary that maps dataset ids to the corresponding paths
+    for dataset_id, dataset_path in datasets_paths.items():
+        images_paths, masks_paths = load_split_data(dataset_path, split_filename)
+        images_by_dataset_id[dataset_id] = images_paths
+        masks_by_dataset_id[dataset_id] = masks_paths
 
     # Keep the same number of samples for each dataset by limiting to the size of the smallest dataset
-    min_size_train = min(len(train_images_by_dataset[dataset_id]) for dataset_id in train_images_by_dataset.keys())
-    all_train_images, all_train_masks, all_train_dataset_ids = [], [], []
-    #print(f'Min size of training datasets: {min_size_train}')
-    for dataset_id in train_images_by_dataset.keys():
-        all_train_images.extend(train_images_by_dataset[dataset_id][:min_size_train])
-        all_train_masks.extend(train_masks_by_dataset[dataset_id][:min_size_train])
-        all_train_dataset_ids.extend([dataset_id] * min_size_train)
-
-    min_size_validation = min(len(validation_images_by_dataset[dataset_id]) for dataset_id in validation_images_by_dataset.keys())
-    all_validation_images, all_validation_masks, all_validation_dataset_ids = [], [], []
-    #print(f'Min size of validation datasets: {min_size_validation}')
-    for dataset_id in validation_images_by_dataset.keys():
-        all_validation_images.extend(validation_images_by_dataset[dataset_id][:min_size_validation])
-        all_validation_masks.extend(validation_masks_by_dataset[dataset_id][:min_size_validation])
-        all_validation_dataset_ids.extend([dataset_id] * min_size_validation)
-
-    return (all_train_images, all_train_masks, all_train_dataset_ids), (all_validation_images, all_validation_masks, all_validation_dataset_ids)
+    min_size = min(len(images_by_dataset_id[dataset_id]) for dataset_id in images_by_dataset_id.keys())
+    all_images, all_masks, all_dataset_ids = [], []
+    for dataset_id in images_by_dataset_id.keys():
+        all_images.extend(images_by_dataset_id[dataset_id][:min_size])
+        all_masks.extend(masks_by_dataset_id[dataset_id][:min_size])
+        all_dataset_ids.extend([dataset_id] * min_size)
+    
+    return all_images, all_masks, all_dataset_ids
 
 # Function that shuffles the images, masks and dataset ids
-def shuffle_data(param_images_path, param_masks_path, param_dataset_ids):
-    param_images_path, param_masks_path, param_dataset_ids = shuffle(param_images_path, param_masks_path, param_dataset_ids, random_state=SEED)
-    return param_images_path, param_masks_path, param_dataset_ids
+def shuffle_data(images_paths, masks_paths, dataset_ids, random_state):
+    images_paths, masks_paths, dataset_ids = shuffle(images_paths, masks_paths, dataset_ids, random_state=random_state)
+    return images_paths, masks_paths, dataset_ids
 
 # Function that saves a checkpoint for resuming training later if needed
-def save_resume_checkpoint(param_model, param_epoch, param_optimizer, param_scheduler, param_best_validation_metric, param_num_epochs_no_improvement, param_path=RESUME_CHECKPOINT_PATH):
+def save_resume_checkpoint(model, epoch, optimizer, scheduler, best_validation_metric, num_epochs_no_improvement, path):
     torch.save({
-        'model_state': param_model.state_dict(),
-        'epoch': param_epoch,
-        'optimizer_state': param_optimizer.state_dict(),
-        'scheduler_state': param_scheduler.state_dict(),
-        'best_validation_metric': param_best_validation_metric,
-        'num_epochs_no_improvement': param_num_epochs_no_improvement,
+        'model_state': model.state_dict(),
+        'epoch': epoch,
+        'optimizer_state': optimizer.state_dict(),
+        'scheduler_state': scheduler.state_dict(),
+        'best_validation_metric': best_validation_metric,
+        'num_epochs_no_improvement': num_epochs_no_improvement,
         'rng_state': {
             'python': random.getstate(),
             'numpy': np.random.get_state(),
             'torch': torch.get_rng_state().cpu(),
             'cuda': [state.cpu() for state in torch.cuda.get_rng_state_all()]
         }
-    }, param_path)
+    }, path)
 
 # Function that loads a checkpoint and restores the model, optimizer, scheduler states, as well as RNG states for reproducibility
-def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_path=RESUME_CHECKPOINT_PATH, param_device=DEVICE):
-    checkpoint = torch.load(param_path, map_location=param_device, weights_only=False)
-    param_model.load_state_dict(checkpoint['model_state'])
-    param_optimizer.load_state_dict(checkpoint['optimizer_state'])
-    param_scheduler.load_state_dict(checkpoint['scheduler_state'])
+def load_resume_checkpoint(model, optimizer, scheduler, path, device):
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint['model_state'])
+    optimizer.load_state_dict(checkpoint['optimizer_state'])
+    scheduler.load_state_dict(checkpoint['scheduler_state'])
     best_validation_metric = checkpoint['best_validation_metric']
     num_epochs_no_improvement = checkpoint['num_epochs_no_improvement']
     epoch = checkpoint['epoch'] + 1
@@ -160,6 +160,48 @@ def load_resume_checkpoint(param_model, param_optimizer, param_scheduler, param_
 
     return epoch, best_validation_metric, num_epochs_no_improvement
 
+# Segmentation Dataset class for loading images and masks
+class BaseSegmentationDataset(Dataset):
+    def __init__(self, images_paths, masks_paths, image_size, transform=None):
+        super().__init__()
+        self.images_paths = images_paths
+        self.masks_paths = masks_paths
+        self.image_size = image_size
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images_paths)
+    
+    def load_sample(self, index):
+        image = cv.imread(self.images_paths[index], cv.IMREAD_COLOR)
+        mask = cv.imread(self.masks_paths[index], cv.IMREAD_GRAYSCALE)
+
+        image = cv.resize(image, self.image_size, interpolation=cv.INTER_LINEAR)
+        mask = cv.resize(mask, self.image_size, interpolation=cv.INTER_NEAREST)
+
+        if self.transform is not None:
+            augmentations = self.transform(image=image, mask=mask)
+            image = augmentations['image']
+            mask = augmentations['mask']
+
+        image = torch.from_numpy(image).permute(2, 0, 1).float()
+        image.div_(255.0)
+
+        mask = (mask > 127).astype(np.float32)
+        mask = torch.from_numpy(mask).unsqueeze(0)
+
+        return image, mask
+
+class SegmentationDatasetWithDatasetId(BaseSegmentationDataset):
+    def __init__(self, images_paths, masks_paths, dataset_ids, image_size, transform=None): 
+        super().__init__(images_paths, masks_paths, image_size, transform)
+        self.dataset_ids = dataset_ids 
+    
+    def __getitem__(self, index): 
+        image, mask = self.load_sample(index) 
+        dataset_id = torch.tensor(self.dataset_ids[index], dtype=torch.long) 
+        return image, mask, dataset_id
+
 class BalancedBatchSampler(Sampler):
     '''
     For batch_size=16 and 3 datasets:
@@ -168,12 +210,12 @@ class BalancedBatchSampler(Sampler):
         batch 3 -> 5, 5, 6 samples from dataset 1, 2, 3
         and so on
     '''
-    def __init__(self, param_dataset_ids, param_batch_size, param_shuffle=True, param_allow_incomplete_last_batch=False):
+    def __init__(self, dataset_ids, batch_size, shuffle=True, allow_incomplete_last_batch=False):
         super().__init__()
-        self.dataset_ids = np.array(param_dataset_ids, dtype=np.int64)
-        self.batch_size = param_batch_size
-        self.shuffle = param_shuffle
-        self.allow_incomplete_last_batch = param_allow_incomplete_last_batch
+        self.dataset_ids = np.array(dataset_ids, dtype=np.int64)
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.allow_incomplete_last_batch = allow_incomplete_last_batch
         self.epoch = 0
 
         self.unique_dataset_ids = sorted(np.unique(self.dataset_ids).tolist())
@@ -183,8 +225,8 @@ class BalancedBatchSampler(Sampler):
         self.remainder = self.batch_size % len(self.indices_per_dataset)
         self.num_batches = int(np.ceil(len(self.dataset_ids) / self.batch_size))
 
-    def set_epoch(self, param_epoch):
-        self.epoch = param_epoch
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def __len__(self):
         return self.num_batches
@@ -254,43 +296,6 @@ class BalancedBatchSampler(Sampler):
                 random_generator.shuffle(batch)
             yield batch
 
-# Segmentation Dataset class for loading images and masks
-class SegmentationDataset(Dataset):
-    def __init__(self, param_images_path, param_masks_path, param_dataset_ids, param_size, param_transform=None):
-        super().__init__()
-        self.images_path = param_images_path
-        self.masks_path = param_masks_path
-        self.dataset_ids = param_dataset_ids
-        self.num_samples = len(param_images_path)
-        self.size = param_size
-        self.transform = param_transform
-
-    def __len__(self):
-        return self.num_samples
-    
-    def __getitem__(self, param_index):
-        image = cv.imread(self.images_path[param_index], cv.IMREAD_COLOR)
-        mask = cv.imread(self.masks_path[param_index], cv.IMREAD_GRAYSCALE)
-        dataset_id = self.dataset_ids[param_index]
-
-        image = cv.resize(image, self.size, interpolation=cv.INTER_LINEAR)
-        mask = cv.resize(mask, self.size, interpolation=cv.INTER_NEAREST)
-
-        if self.transform is not None:
-            augmentations = self.transform(image=image, mask=mask)
-            image = augmentations['image']
-            mask = augmentations['mask']
-
-        image = torch.from_numpy(image).permute(2, 0, 1).float()
-        image.div_(255.0)
-
-        mask = (mask > 127).astype(np.float32)
-        mask = torch.from_numpy(mask).unsqueeze(0)
-
-        dataset_id = torch.tensor(dataset_id, dtype=torch.long)
-
-        return image, mask, dataset_id
-
 
 # RESNET BACKBONE
 model_urls = {
@@ -308,7 +313,7 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_layer=None):
-        super(BasicBlock, self).__init__()
+        super().__init__()
 
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -350,7 +355,7 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_layer=None):
-        super(Bottleneck, self).__init__()
+        super().__init__()
         
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -393,7 +398,7 @@ class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
-        super(ResNet, self).__init__()
+        super().__init__()
         
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -683,7 +688,7 @@ class DiceBCELoss(nn.Module):
         return bce_loss + dice_loss
         
         
-def calculate_metrics(y_true, y_pred):
+def compute_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
     
     y_pred = torch.sigmoid(y_pred)
@@ -705,27 +710,31 @@ def calculate_metrics(y_true, y_pred):
     return [score_jaccard, score_dice, score_recall, score_precision]
 
 # Function that performs a training step for the generic model using just the DiceBCE loss 
-def train_step(param_model, param_dataloader, param_optimizer, param_criterion, param_device):
-    param_model.train()
+def train_step(model, dataloader, optimizer, criterion, device):
+    model.train()
     
-    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
+    epoch_loss = 0.0
+    epoch_jaccard = 0.0
+    epoch_dice = 0.0
+    epoch_recall = 0.0
+    epoch_precision = 0.0
 
-    for batched_images, batched_masks, _ in param_dataloader:
-        batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
-        batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
+    for batched_images, batched_masks, _ in dataloader:
+        batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
+        batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
-        param_optimizer.zero_grad()
-        y_pred = param_model(batched_images)
-        dice_bce_loss = param_criterion(y_pred, batched_masks)
+        optimizer.zero_grad()
+        y_pred = model(batched_images)
+        dice_bce_loss = criterion(y_pred, batched_masks)
         dice_bce_loss.backward()
-        param_optimizer.step()
+        optimizer.step()
         
         epoch_loss += dice_bce_loss.item()
 
         # Calculate metrics
         batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
         for yt, yp in zip(batched_masks, y_pred):
-            score = calculate_metrics(yt, yp)
+            score = compute_metrics(yt, yp)
             batch_jaccard.append(score[0])
             batch_dice.append(score[1])
             batch_recall.append(score[2])
@@ -736,32 +745,36 @@ def train_step(param_model, param_dataloader, param_optimizer, param_criterion, 
         epoch_recall += np.mean(batch_recall)
         epoch_precision += np.mean(batch_precision)
 
-    epoch_loss /= len(param_dataloader)
-    epoch_jaccard /= len(param_dataloader)
-    epoch_dice /= len(param_dataloader)
-    epoch_recall /= len(param_dataloader)
-    epoch_precision /= len(param_dataloader)
+    epoch_loss /= len(dataloader)
+    epoch_jaccard /= len(dataloader)
+    epoch_dice /= len(dataloader)
+    epoch_recall /= len(dataloader)
+    epoch_precision /= len(dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
-# Function that performs an evaluation step for the generic model
-def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
-    param_model.eval()
+def evaluate_step(model, dataloader, criterion, device):
+    model.eval()
 
-    epoch_loss, epoch_jaccard, epoch_dice, epoch_recall, epoch_precision = 0.0, 0.0, 0.0, 0.0, 0.0
+    epoch_loss = 0.0
+    epoch_jaccard = 0.0
+    epoch_dice = 0.0
+    epoch_recall = 0.0
+    epoch_precision = 0.0
 
     with torch.inference_mode():
-        for batched_images, batched_masks, _ in param_dataloader:
-            batched_images = batched_images.to(param_device, dtype=torch.float32, non_blocking=True)
-            batched_masks = batched_masks.to(param_device, dtype=torch.float32, non_blocking=True)
+        for batched_images, batched_masks, _ in dataloader:
+            batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
+            batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
-            y_pred = param_model(batched_images)
-            dice_bce_loss = param_criterion(y_pred, batched_masks)
+            y_pred = model(batched_images)
+            dice_bce_loss = criterion(y_pred, batched_masks)
+            
             epoch_loss += dice_bce_loss.item()
 
             # Calculate metrics
             batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
             for yt, yp in zip(batched_masks, y_pred):
-                score = calculate_metrics(yt, yp)
+                score = compute_metrics(yt, yp)
                 batch_jaccard.append(score[0])
                 batch_dice.append(score[1])
                 batch_recall.append(score[2])
@@ -772,38 +785,29 @@ def evaluate_step(param_model, param_dataloader, param_criterion, param_device):
             epoch_recall += np.mean(batch_recall)
             epoch_precision += np.mean(batch_precision)
 
-    epoch_loss /= len(param_dataloader)
-    epoch_jaccard /= len(param_dataloader)
-    epoch_dice /= len(param_dataloader)
-    epoch_recall /= len(param_dataloader)
-    epoch_precision /= len(param_dataloader)
+    epoch_loss /= len(dataloader)
+    epoch_jaccard /= len(dataloader)
+    epoch_dice /= len(dataloader)
+    epoch_recall /= len(dataloader)
+    epoch_precision /= len(dataloader)
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
 
 if __name__ == '__main__':
     seed_all(SEED)
-
-    if os.path.exists(LOG_PATH):
-        print('Log file exists')
-    else:
-        train_log_file = open(LOG_PATH, 'w')
-        train_log_file.write('\n')
-        train_log_file.close()
-
-    # Log the start time of training
-    start_datetime = str(datetime.datetime.now())
-    print_and_save(LOG_PATH, start_datetime)
+    create_log_file(TRAIN_LOG_PATH)
 
     # Log hyperparameters
     hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\n'
     hyperparameters_log_text += f'Epochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
-    print_and_save(LOG_PATH, hyperparameters_log_text)
+    print_and_save(TRAIN_LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation
-    (train_images_paths, train_masks_paths, train_dataset_ids), (validation_images_paths, validation_masks_paths, validation_dataset_ids) = load_data(DATASETS_PATHS)
+    train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'train.txt')
+    validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'val.txt')
     train_images_paths, train_masks_paths, train_dataset_ids = shuffle_data(train_images_paths, train_masks_paths, train_dataset_ids)
     dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
-    print_and_save(LOG_PATH, dataset_log_text)
+    print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
     # Define data augmentation transforms using albumentations
     augmentation = A.Compose([
@@ -814,12 +818,12 @@ if __name__ == '__main__':
     ])
 
     # Create datasets for training and validation
-    train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], param_transform=augmentation)
-    validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'])
+    train_dataset = SegmentationDatasetWithDatasetId(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], transform=augmentation)
+    validation_dataset = SegmentationDatasetWithDatasetId(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
     
-    # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset
-    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=True, param_allow_incomplete_last_batch=False)
-    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], param_shuffle=False, param_allow_incomplete_last_batch=True)
+    # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
+    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], shuffle=True, allow_incomplete_last_batch=False)
+    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], shuffle=False, allow_incomplete_last_batch=True)
 
     # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
@@ -849,7 +853,7 @@ if __name__ == '__main__':
 
         if validation_metrics[1] > best_validation_metric:
             data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(LOG_PATH, data_str)
+            print_and_save(TRAIN_LOG_PATH, data_str)
 
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
@@ -863,10 +867,35 @@ if __name__ == '__main__':
         epoch_log_text = f'Epoch {epoch + 1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
         epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
         epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
-        print_and_save(LOG_PATH, epoch_log_text)
+        print_and_save(TRAIN_LOG_PATH, epoch_log_text)
 
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
+            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
             break
 
         save_resume_checkpoint(model, epoch, optimizer, scheduler, best_validation_metric, num_epochs_no_improvement, RESUME_CHECKPOINT_PATH)
+
+    # Create the test log file
+    create_log_file(TEST_LOG_PATH)
+    # Load best model and check its performance
+    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
+
+    # Iterate through all datasets and evaluate the best model on the test set of each dataset separately, logging the results
+    for dataset_id, dataset_path in DATASETS_PATHS.items():
+        dataset_log_text = f'{IDS_TO_DATASETS[dataset_id]} dataset'
+        print_and_save(TEST_LOG_PATH, dataset_log_text)
+
+        # Load the images and masks file names for the test split
+        test_images_paths, test_masks_paths = load_split_data(dataset_path, 'test.txt')
+        test_dataset_ids = [dataset_id] * len(test_images_paths)
+        dataset_log_text = f'Test set size: {len(test_images_paths)}\n'
+        print_and_save(TEST_LOG_PATH, dataset_log_text)
+
+        # Create dataset and dataloader for the test set of the current dataset
+        test_dataset = SegmentationDatasetWithDatasetId(test_images_paths, test_masks_paths, test_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
+        test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
+    
+        # Test the model
+        test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
+        test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n\n'
+        print_and_save(TEST_LOG_PATH, test_log_text)
