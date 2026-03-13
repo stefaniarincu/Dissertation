@@ -59,7 +59,7 @@ def seed_all(seed):
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
-    #torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark = False
 
 # Function that ensures that a log file exists and writes the start datetime to it
 def create_log_file(log_path):
@@ -102,7 +102,7 @@ def load_split_data_all_datasets(datasets_paths, split_filename):
 
     # Keep the same number of samples for each dataset by limiting to the size of the smallest dataset
     min_size = min(len(images_by_dataset_id[dataset_id]) for dataset_id in images_by_dataset_id.keys())
-    all_images, all_masks, all_dataset_ids = [], []
+    all_images, all_masks, all_dataset_ids = [], [], []
     for dataset_id in images_by_dataset_id.keys():
         all_images.extend(images_by_dataset_id[dataset_id][:min_size])
         all_masks.extend(masks_by_dataset_id[dataset_id][:min_size])
@@ -205,19 +205,19 @@ class BaseSegmentationDataset(Dataset):
         image = cv.imread(self.images_paths[index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_paths[index], cv.IMREAD_GRAYSCALE)
 
-        image = cv.resize(image, self.image_size, interpolation=cv.INTER_LINEAR)
-        mask = cv.resize(mask, self.image_size, interpolation=cv.INTER_NEAREST)
-
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)
             image = augmentations['image']
             mask = augmentations['mask']
 
+        image = cv.resize(image, self.image_size, interpolation=cv.INTER_LINEAR)
+        mask = cv.resize(mask, self.image_size, interpolation=cv.INTER_NEAREST)
+
         image = torch.from_numpy(image).permute(2, 0, 1).float()
         image.div_(255.0)
 
         mask = (mask > 127).astype(np.float32)
-        mask = torch.from_numpy(mask).unsqueeze(0)
+        mask = torch.from_numpy(mask).unsqueeze(0).float()
 
         return image, mask
 
@@ -324,7 +324,6 @@ class BalancedBatchSampler(Sampler):
             if self.shuffle:
                 random_generator.shuffle(batch)
             yield batch
-
 
 # RESNET BACKBONE
 model_urls = {
@@ -831,11 +830,19 @@ class TResUnetFusedDatasetSpecificModels(nn.Module):
         # Final output layer
         self.output = nn.Conv2d(32, 1, kernel_size=1)
 
+    def train(self, mode=True):
+        super().train(mode)
+        self.dataset_specific_1.eval()
+        self.dataset_specific_2.eval()
+        self.dataset_specific_3.eval()
+        return self
+
     def forward(self, x, weighting_mode=None, dataset_ids=None, return_features=False):
-        # Encode features from each dataset specific model
-        [ds1_s1, ds1_s2, ds1_s3, ds1_b] = self.dataset_specific_1.encode(x)
-        [ds2_s1, ds2_s2, ds2_s3, ds2_b] = self.dataset_specific_2.encode(x)
-        [ds3_s1, ds3_s2, ds3_s3, ds3_b] = self.dataset_specific_3.encode(x)
+        with torch.no_grad():
+            # Encode features from each dataset specific model
+            [ds1_s1, ds1_s2, ds1_s3, ds1_b] = self.dataset_specific_1.encode(x)
+            [ds2_s1, ds2_s2, ds2_s3, ds2_b] = self.dataset_specific_2.encode(x)
+            [ds3_s1, ds3_s2, ds3_s3, ds3_b] = self.dataset_specific_3.encode(x)
 
         # Cross-attention on encoder outputs
         #ds1_s1 = self.cross_attn1(ds1_s1, ds2_s1) + self.cross_attn1(ds1_s1, ds3_s1) + self.cross_attn1(ds2_s1, ds3_s1)
@@ -891,13 +898,13 @@ class DiceBCELoss(nn.Module):
         bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
 
         inputs = torch.sigmoid(inputs)
-        #inputs = inputs.reshape(-1)
-        #targets = targets.reshape(-1)
+        inputs = inputs.reshape(-1)
+        targets = targets.reshape(-1)
 
         intersection = (inputs * targets).sum()
         dice_loss = 1 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
         return bce_loss + dice_loss
-    
+
 
 def compute_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
@@ -930,40 +937,37 @@ def train_step(model, dataloader, optimizer, criterion, device):
     epoch_recall = 0.0
     epoch_precision = 0.0
 
+    processed_samples = 0
+
     for batched_images, batched_masks, _ in dataloader:
         batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
         batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
         #batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
 
         optimizer.zero_grad()
-        
+
         y_pred = model(batched_images)
         dice_bce_loss = criterion(y_pred, batched_masks)
 
         dice_bce_loss.backward()
         optimizer.step()
 
-        epoch_loss += dice_bce_loss.item()
+        epoch_loss += dice_bce_loss.item() * batched_images.size(0)
+        processed_samples += batched_images.size(0)
 
         # Calculate metrics
-        batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
         for yt, yp in zip(batched_masks, y_pred):
             score = compute_metrics(yt, yp)
-            batch_jaccard.append(score[0])
-            batch_dice.append(score[1])
-            batch_recall.append(score[2])
-            batch_precision.append(score[3])
+            epoch_jaccard += score[0]
+            epoch_dice += score[1]
+            epoch_recall += score[2]
+            epoch_precision += score[3]
 
-        epoch_jaccard += np.mean(batch_jaccard)
-        epoch_dice += np.mean(batch_dice)
-        epoch_recall += np.mean(batch_recall)
-        epoch_precision += np.mean(batch_precision)
-
-    epoch_loss /= len(dataloader)
-    epoch_jaccard /= len(dataloader)
-    epoch_dice /= len(dataloader)
-    epoch_recall /= len(dataloader)
-    epoch_precision /= len(dataloader)
+    epoch_loss /= processed_samples
+    epoch_jaccard /= processed_samples
+    epoch_dice /= processed_samples
+    epoch_recall /= processed_samples
+    epoch_precision /= processed_samples
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
 # Function that performs an evaluation step for the student model
@@ -976,6 +980,8 @@ def evaluate_step(model, dataloader, criterion, device):
     epoch_recall = 0.0
     epoch_precision = 0.0
 
+    processed_samples = 0
+
     with torch.inference_mode():
         for batched_images, batched_masks, _ in dataloader:
             batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
@@ -985,27 +991,22 @@ def evaluate_step(model, dataloader, criterion, device):
             y_pred = model(batched_images)
             dice_bce_loss = criterion(y_pred, batched_masks)
             
-            epoch_loss += dice_bce_loss.item()
+            epoch_loss += dice_bce_loss.item() * batched_images.size(0)
+            processed_samples += batched_images.size(0)
 
             # Calculate metrics
-            batch_jaccard, batch_dice, batch_recall, batch_precision = [], [], [], []
             for yt, yp in zip(batched_masks, y_pred):
                 score = compute_metrics(yt, yp)
-                batch_jaccard.append(score[0])
-                batch_dice.append(score[1])
-                batch_recall.append(score[2])
-                batch_precision.append(score[3])
+                epoch_jaccard += score[0]
+                epoch_dice += score[1]
+                epoch_recall += score[2]
+                epoch_precision += score[3]
 
-            epoch_jaccard += np.mean(batch_jaccard)
-            epoch_dice += np.mean(batch_dice)
-            epoch_recall += np.mean(batch_recall)
-            epoch_precision += np.mean(batch_precision)
-
-    epoch_loss /= len(dataloader)
-    epoch_jaccard /= len(dataloader)
-    epoch_dice /= len(dataloader)
-    epoch_recall /= len(dataloader)
-    epoch_precision /= len(dataloader)
+    epoch_loss /= processed_samples
+    epoch_jaccard /= processed_samples
+    epoch_dice /= processed_samples
+    epoch_recall /= processed_samples
+    epoch_precision /= processed_samples
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
 
@@ -1021,7 +1022,7 @@ if __name__ == '__main__':
     # Load the images and masks file names for training and validation
     train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'train.txt')
     validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'val.txt')
-    train_images_paths, train_masks_paths, train_dataset_ids = shuffle_data(train_images_paths, train_masks_paths, train_dataset_ids)
+    train_images_paths, train_masks_paths, train_dataset_ids = shuffle_data(train_images_paths, train_masks_paths, train_dataset_ids, SEED)
     dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
     print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
@@ -1055,7 +1056,7 @@ if __name__ == '__main__':
     criterion = DiceBCELoss()
 
     start_epoch = 0
-    best_validation_metric = 0.0
+    best_validation_metric = -1.0
     num_epochs_no_improvement = 0
 
     # If resume checkpoint exists, load it
