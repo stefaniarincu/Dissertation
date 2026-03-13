@@ -33,7 +33,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 
-# Constants for dataset paths
+# Constants for paths of all datasets
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
@@ -650,7 +650,7 @@ class DecoderBlock(nn.Module):
         super().__init__()
 
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.r1 = ResidualBlock(in_c[0]+in_c[1], out_c)
+        self.r1 = ResidualBlock(in_c[0] + in_c[1], out_c)
         self.r2 = ResidualBlock(out_c, out_c)
 
     def forward(self, inputs, skip):
@@ -891,8 +891,8 @@ class DiceBCELoss(nn.Module):
         bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='mean')
 
         inputs = torch.sigmoid(inputs)
-        #inputs = inputs.view(-1)
-        #targets = targets.view(-1)
+        #inputs = inputs.reshape(-1)
+        #targets = targets.reshape(-1)
 
         intersection = (inputs * targets).sum()
         dice_loss = 1 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
@@ -1089,7 +1089,7 @@ if __name__ == '__main__':
         print_and_save(TRAIN_LOG_PATH, epoch_log_text)
 
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
+            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
             break
 
         save_resume_checkpoint(model, epoch, optimizer, scheduler, best_validation_metric, num_epochs_no_improvement, RESUME_CHECKPOINT_PATH)

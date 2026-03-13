@@ -33,7 +33,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 
-# Constants for dataset paths
+# Constants for paths of all datasets
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
@@ -47,13 +47,13 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_cross_dataset.txt'
 RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_last_resume.pth'
 
 # Function that sets constant seed for reproducibility
-def seed_all(param_seed=SEED):
-    random.seed(param_seed)
-    os.environ['PYTHONHASHSEED'] = str(param_seed)
-    np.random.seed(param_seed)
-    torch.manual_seed(param_seed)
-    torch.cuda.manual_seed(param_seed)
-    torch.cuda.manual_seed_all(param_seed)
+def seed_all(seed):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = False
 
@@ -621,7 +621,7 @@ class DecoderBlock(nn.Module):
         super().__init__()
 
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.r1 = ResidualBlock(in_c[0]+in_c[1], out_c)
+        self.r1 = ResidualBlock(in_c[0] + in_c[1], out_c)
         self.r2 = ResidualBlock(out_c, out_c)
 
     def forward(self, inputs, skip):
@@ -654,7 +654,19 @@ class TResUnet(nn.Module):
 
         self.output = nn.Conv2d(32, 1, kernel_size=1)
 
-    def forward(self, x):
+    def encode(self, x):
+        s1 = self.layer0(x)
+        s2 = self.layer1(s1)
+        s3 = self.layer2(s2)
+        s4 = self.layer3(s3)
+
+        b1 = self.b1(s4)
+        b2 = self.b2(s4)
+        b3 = torch.cat([b1, b2], dim=1)
+
+        return [s1, s2, s3, b3]
+
+    def forward(self, x, return_features=False):
         s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
         s3 = self.layer2(s2)    ## [-1, 512, h/8, w/8]
@@ -669,7 +681,11 @@ class TResUnet(nn.Module):
         d3 = self.d3(d2, s1)
         d4 = self.d4(d3, x)
 
-        return self.output(d4)
+        y = self.output(d4)
+
+        if return_features:
+            return y, [s1, s2, s3, b3]
+        return y
 
 
 class DiceBCELoss(nn.Module):
@@ -870,7 +886,7 @@ if __name__ == '__main__':
         print_and_save(TRAIN_LOG_PATH, epoch_log_text)
 
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
+            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
             break
 
         save_resume_checkpoint(model, epoch, optimizer, scheduler, best_validation_metric, num_epochs_no_improvement, RESUME_CHECKPOINT_PATH)

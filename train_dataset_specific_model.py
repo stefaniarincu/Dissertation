@@ -24,7 +24,7 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 20,
+    'early_stopping_patience': 20
 }
 
 # Constant for the root path for all necessary files
@@ -482,9 +482,20 @@ class TResUnet(nn.Module):
 
         self.output = nn.Conv2d(32, 1, kernel_size=1)
 
-    def forward(self, x):
-        s0 = x
-        s1 = self.layer0(s0)    ## [-1, 64, h/2, w/2]
+    def encode(self, x):
+        s1 = self.layer0(x)
+        s2 = self.layer1(s1)
+        s3 = self.layer2(s2)
+        s4 = self.layer3(s3)
+
+        b1 = self.b1(s4)
+        b2 = self.b2(s4)
+        b3 = torch.cat([b1, b2], dim=1)
+
+        return [s1, s2, s3, b3]
+
+    def forward(self, x, return_features=False):
+        s1 = self.layer0(x)    ## [-1, 64, h/2, w/2]
         s2 = self.layer1(s1)    ## [-1, 256, h/4, w/4]
         s3 = self.layer2(s2)    ## [-1, 512, h/8, w/8]
         s4 = self.layer3(s3)    ## [-1, 1024, h/16, w/16]
@@ -496,9 +507,13 @@ class TResUnet(nn.Module):
         d1 = self.d1(b3, s3)
         d2 = self.d2(d1, s2)
         d3 = self.d3(d2, s1)
-        d4 = self.d4(d3, s0)
+        d4 = self.d4(d3, x)
 
-        return self.output(d4)
+        y = self.output(d4)
+
+        if return_features:
+            return y, [s1, s2, s3, b3]
+        return y
 
 
 class DiceBCELoss(nn.Module):
@@ -682,13 +697,13 @@ if __name__ == '__main__':
         end_time = time.time()
         epoch_duration_min = int((end_time - start_time) / 60)
         epoch_duration_sec = int((end_time - start_time) - (epoch_duration_min * 60))
-        epoch_log_text = f'Epoch {epoch+1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
+        epoch_log_text = f'Epoch {epoch + 1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
         epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
         epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
         print_and_save(TRAIN_LOG_PATH, epoch_log_text)
 
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch+1} epochs.')
+            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
             break
 
     # Create the test log file
