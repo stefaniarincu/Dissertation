@@ -24,7 +24,7 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 25,
+    'early_stopping_patience': 20,
     'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
 }
 
@@ -43,7 +43,7 @@ DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/s2_s3_features'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/without_fused_model'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -253,7 +253,11 @@ class BalancedBatchSampler(Sampler):
         
         self.base_count = self.batch_size // len(self.indices_per_dataset)
         self.remainder = self.batch_size % len(self.indices_per_dataset)
-        self.num_batches = int(np.ceil(len(self.dataset_ids) / self.batch_size))
+        
+        if self.allow_incomplete_last_batch:
+            self.num_batches = int(np.ceil(len(self.dataset_ids) / self.batch_size))
+        else:
+            self.num_batches = len(self.dataset_ids) // self.batch_size
 
     def set_epoch(self, epoch):
         self.epoch = epoch
@@ -265,14 +269,14 @@ class BalancedBatchSampler(Sampler):
         if self.shuffle:
             random_generator = random.Random(SEED + self.epoch)
 
-        shuffled_indices, current_indices = {}, {}
+        datasets_indices, current_indices = {}, {}
         for dataset_id in self.unique_dataset_ids:
             dataset_indices = self.indices_per_dataset[dataset_id].copy()
             
             if self.shuffle:
                 random_generator.shuffle(dataset_indices)
             
-            shuffled_indices[dataset_id] = dataset_indices
+            datasets_indices[dataset_id] = dataset_indices
             current_indices[dataset_id] = 0
 
         for batch_index in range(self.num_batches):
@@ -286,44 +290,46 @@ class BalancedBatchSampler(Sampler):
 
             for dataset_id in self.unique_dataset_ids:
                 num_required_samples = sample_counts_per_dataset[dataset_id]
-                dataset_indices = shuffled_indices[dataset_id]
-            
-                if self.allow_incomplete_last_batch:
-                    start_index = current_indices[dataset_id]
-                    num_remaining_samples = len(dataset_indices) - start_index
+                dataset_indices = datasets_indices[dataset_id]
 
-                    num_samples_to_take = min(num_required_samples, num_remaining_samples)
-                    if num_samples_to_take > 0:
-                        end_index = start_index + num_samples_to_take
-                        batch.extend(dataset_indices[start_index:end_index])
-                        current_indices[dataset_id] = end_index
+                start_index = current_indices[dataset_id]
+                num_remaining_samples = len(dataset_indices) - start_index
+                num_samples_to_take = min(num_required_samples, num_remaining_samples)
+
+                if num_samples_to_take > 0:
+                    end_index = start_index + num_samples_to_take
+                    batch.extend(dataset_indices[start_index:end_index])
+                    current_indices[dataset_id] = end_index
+
+            num_missing_samples = self.batch_size - len(batch)
+            if num_missing_samples > 0:
+                if self.allow_incomplete_last_batch:
+                    pass
                 else:
-                    selected_samples = []
-                    while len(selected_samples) < num_required_samples:
+                    for dataset_id in self.unique_dataset_ids:
+                        if num_missing_samples == 0:
+                            break
+
+                        dataset_indices = datasets_indices[dataset_id]
                         start_index = current_indices[dataset_id]
                         num_remaining_samples = len(dataset_indices) - start_index
-                        needed_samples = num_required_samples - len(selected_samples)
 
-                        if num_remaining_samples >= needed_samples:
-                            end_index = start_index + needed_samples
-                            selected_samples.extend(dataset_indices[start_index:end_index])
+                        if num_remaining_samples > 0:
+                            num_samples_to_take = min(num_missing_samples, num_remaining_samples)
+                            end_index = start_index + num_samples_to_take
+                            batch.extend(dataset_indices[start_index:end_index])
                             current_indices[dataset_id] = end_index
-                        else:
-                            if num_remaining_samples > 0:
-                                selected_samples.extend(dataset_indices[start_index:])
+                            num_missing_samples -= num_samples_to_take
 
-                            if self.shuffle:
-                                random_generator.shuffle(dataset_indices)
-
-                            current_indices[dataset_id] = 0
-
-                    batch.extend(selected_samples)
+                    if len(batch) < self.batch_size:
+                        return
 
             if len(batch) == 0:
-                break
+                return
 
             if self.shuffle:
                 random_generator.shuffle(batch)
+
             yield batch
 
 # RESNET BACKBONE
@@ -910,7 +916,7 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDatasetWithDatasetId(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
     
     # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
-    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], shuffle=True, allow_incomplete_last_batch=False)
+    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], shuffle=True, allow_incomplete_last_batch=True)
     validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], shuffle=False, allow_incomplete_last_batch=True)
 
     # Create dataloaders for training and validation datasets

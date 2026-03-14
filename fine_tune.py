@@ -24,7 +24,7 @@ HYPERPARAMETERS = {
     'num_epochs': 150,
     'init_learning_rate': 0.0005,
     'scheduler_patience': 5,
-    'early_stopping_patience': 25,
+    'early_stopping_patience': 20,
 }
 
 # Constant for the root path for all necessary files
@@ -35,10 +35,10 @@ DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Path to the pretrained model checkpoint
-PRETRAINED_CHECKPOINT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/s2_s3_features/cross_dataset_model.pth'
+PRETRAINED_CHECKPOINT_PATH = f'{ROOT_PATH}/files/cross_dataset/only_segmentation/cross_dataset_model.pth'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fine_tune/biased/s2_s3_features/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fine_tune//only_segmentation/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -86,9 +86,9 @@ def load_split_data(dataset_path, split_filename):
     return images_paths, masks_paths
 
 # Function that shuffles the images and masks
-def shuffle_data(images_path, masks_path, random_state):
-    images_path, masks_path = shuffle(images_path, masks_path, random_state=random_state)
-    return images_path, masks_path
+def shuffle_data(images_paths, masks_paths, random_state):
+    images_paths, masks_paths = shuffle(images_paths, masks_paths, random_state=random_state)
+    return images_paths, masks_paths
 
 def set_bn_eval(module):
     if isinstance(module, nn.BatchNorm2d):
@@ -103,8 +103,9 @@ def freeze_module(module):
 def load_pretrained_model(pretrained_checkpoint_path, device):
     pretrained_model = TResUnet().to(device)
     pretrained_model.load_state_dict(torch.load(pretrained_checkpoint_path, map_location=device), strict=False)
-    print(pretrained_model.missing_keys)
-    print(pretrained_model.unexpected_keys)
+    '''incompatible = pretrained_model.load_state_dict(torch.load(pretrained_checkpoint_path, map_location=device), strict=False)
+    print(incompatible.missing_keys)
+    print(incompatible.unexpected_keys)'''
     
     # Freeze encoder layers
     for num_layer in range(4):
@@ -119,7 +120,7 @@ def load_pretrained_model(pretrained_checkpoint_path, device):
     return pretrained_model
 
 # Function that creates the optimizer with just the trainable parameters (decoder and output layers)
-def create_optimizer_for_fine_tuning(model, learning_rate):
+def create_optimizer(model, learning_rate):
     trainable_parameters = filter(lambda p: p.requires_grad, model.parameters())
     return torch.optim.Adam(trainable_parameters, lr=learning_rate)
 
@@ -702,7 +703,7 @@ if __name__ == '__main__':
 
     # Load the pretrained model and freeze the encoder layers and create the optimizer for fine-tuning
     model = load_pretrained_model(PRETRAINED_CHECKPOINT_PATH, DEVICE)
-    optimizer = create_optimizer_for_fine_tuning(model, HYPERPARAMETERS['init_learning_rate'])
+    optimizer = create_optimizer(model, HYPERPARAMETERS['init_learning_rate'])
 
     # Print and save the number of trainable parameters and total parameters in the model
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -735,7 +736,7 @@ if __name__ == '__main__':
         end_time = time.time()
         epoch_duration_min = int((end_time - start_time) / 60)
         epoch_duration_sec = int((end_time - start_time) - (epoch_duration_min * 60))
-        epoch_log_text = f'Epoch {epoch+1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
+        epoch_log_text = f'Epoch {epoch + 1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
         epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
         epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
         print_and_save(TRAIN_LOG_PATH, epoch_log_text)
