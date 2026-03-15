@@ -34,7 +34,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 
-# Constants for dataset paths
+# Constants for paths of all datasets
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
@@ -754,7 +754,7 @@ def compute_feature_alignment_loss(cross_dataset_features, dataset_specific_feat
         
         feature_alignment_loss += F.mse_loss(cross_dataset_feature, weighted_target)
     
-    return feature_alignment_loss / len(cross_dataset_features)
+    return feature_alignment_loss #/ len(cross_dataset_features)
 
 
 def compute_metrics(y_true, y_pred):
@@ -804,10 +804,14 @@ def train_step(model, dataloader, optimizer, criterion, dataset_specific_models,
             num_dataset_specific_models = len(dataset_specific_models)
 
             if weighting_mode == 0:
-                dataset_specific_features_by_dataset_id = [[torch.empty_like(feature) for feature in cross_dataset_features] for _ in range(num_dataset_specific_models)]
+                dataset_specific_features_by_dataset_id = [[torch.zeros_like(feature) for feature in cross_dataset_features] for _ in range(num_dataset_specific_models)]
                 
                 for dataset_id, dataset_specific_model in dataset_specific_models.items():
                     samples_from_dataset = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
+
+                    if samples_from_dataset.numel() == 0:
+                        continue
+
                     selected_images = batched_images[samples_from_dataset]
                     dataset_specific_features = dataset_specific_model.encode(selected_images)
 
@@ -825,6 +829,7 @@ def train_step(model, dataloader, optimizer, criterion, dataset_specific_models,
         
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
         total_loss = dice_bce_loss + feature_alignment_loss
+        #print(f'Batch Loss: {total_loss.item():.4f} (Segmentation Loss: {dice_bce_loss.item():.4f}, Feature Alignment Loss: {feature_alignment_loss.item():.4f})')
         total_loss.backward()
         optimizer.step()
 

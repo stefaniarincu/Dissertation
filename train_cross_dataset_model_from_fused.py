@@ -34,7 +34,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 
-# Constants for dataset paths
+# Constants for paths of all datasets
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
@@ -928,10 +928,10 @@ class DiceBCELoss(nn.Module):
 
 # Feature alignment loss
 def compute_feature_alignment_loss(generic_features, fused_features):
-    for generic_feature in generic_features:
+    '''for generic_feature in generic_features:
         print(generic_feature.shape)
     for fused_feature in fused_features:
-        print(fused_feature.shape)
+        print(fused_feature.shape)'''
 
     '''aligners = [
         nn.Conv2d(fused_features[i].size(1), generic_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
@@ -1094,9 +1094,9 @@ if __name__ == '__main__':
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, DEVICE)
     fused_model = TResUnetFusedDatasetSpecificModels(dataset_specific_models).to(DEVICE)
     fused_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False)
-    incompatible = fused_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False )
+    '''incompatible = fused_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False )
     print(incompatible.missing_keys)
-    print(incompatible.unexpected_keys)
+    print(incompatible.unexpected_keys)'''
     fused_model.eval()
     for param in fused_model.parameters():
         param.requires_grad = False

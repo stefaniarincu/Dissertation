@@ -24,7 +24,8 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 20
+    'early_stopping_patience': 20,
+    'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
 }
 
 # Dictionary that maps dataset names to an id
@@ -42,7 +43,7 @@ DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/biased'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_dataset_specific_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_fused_dataset_specific.txt'
@@ -939,7 +940,7 @@ def compute_metrics(y_true, y_pred):
     return [score_jaccard, score_dice, score_recall, score_precision]
 
 # Function that performs a training step for the student model, including the feature alignment loss from the dataset specific models based on the specified weighting mode
-def train_step(model, dataloader, optimizer, criterion, device):
+def train_step(model, dataloader, optimizer, criterion, weighting_mode, device):
     model.train()
     
     epoch_loss = 0.0
@@ -950,14 +951,14 @@ def train_step(model, dataloader, optimizer, criterion, device):
 
     processed_samples = 0
 
-    for batched_images, batched_masks, _ in dataloader:
+    for batched_images, batched_masks, batched_dataset_ids in dataloader:
         batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
         batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
-        #batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
+        batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
 
         optimizer.zero_grad()
 
-        y_pred = model(batched_images)
+        y_pred = model(batched_images, weighting_mode=weighting_mode, dataset_ids=batched_dataset_ids)
         dice_bce_loss = criterion(y_pred, batched_masks)
 
         dice_bce_loss.backward()
@@ -1028,6 +1029,7 @@ if __name__ == '__main__':
     # Log hyperparameters
     hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\n'
     hyperparameters_log_text += f'Epochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
+    hyperparameters_log_text += f'Weighting mode: {HYPERPARAMETERS["dsm_weight_mode"]}\n'
     print_and_save(TRAIN_LOG_PATH, hyperparameters_log_text)
 
     # Load the images and masks file names for training and validation
@@ -1078,7 +1080,7 @@ if __name__ == '__main__':
         start_time = time.time()
         train_sampler.set_epoch(epoch)
 
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, DEVICE)
+        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, HYPERPARAMETERS['dsm_weight_mode'], DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 

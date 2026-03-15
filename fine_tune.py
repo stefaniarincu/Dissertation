@@ -31,14 +31,14 @@ HYPERPARAMETERS = {
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'bmshare', 'brats'
+DATASET_NAME = 'brats' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Path to the pretrained model checkpoint
-PRETRAINED_CHECKPOINT_PATH = f'{ROOT_PATH}/files/cross_dataset/only_segmentation/cross_dataset_model.pth'
+PRETRAINED_CHECKPOINT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/without_fused_model/cross_dataset_model.pth'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fine_tune//only_segmentation/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fine_tune/biased/without_fused_model/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
