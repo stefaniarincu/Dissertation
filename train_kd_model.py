@@ -880,11 +880,12 @@ def train_step(model, dataloader, optimizer, criterion, fused_model, device):
             epoch_recall += score[2]
             epoch_precision += score[3]
 
-    epoch_loss /= len(dataloader.dataset)
-    epoch_jaccard /= len(dataloader.dataset)
-    epoch_dice /= len(dataloader.dataset)
-    epoch_recall /= len(dataloader.dataset)
-    epoch_precision /= len(dataloader.dataset)
+    num_samples = len(dataloader.dataset)
+    epoch_loss /= num_samples
+    epoch_jaccard /= num_samples
+    epoch_dice /= num_samples
+    epoch_recall /= num_samples
+    epoch_precision /= num_samples
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
 # Function that performs an evaluation step for the student model
@@ -915,11 +916,12 @@ def evaluate_step(model, dataloader, criterion, device):
                 epoch_recall += score[2]
                 epoch_precision += score[3]
 
-    epoch_loss /= len(dataloader.dataset)
-    epoch_jaccard /= len(dataloader.dataset)
-    epoch_dice /= len(dataloader.dataset)
-    epoch_recall /= len(dataloader.dataset)
-    epoch_precision /= len(dataloader.dataset)
+    num_samples = len(dataloader.dataset)
+    epoch_loss /= num_samples
+    epoch_jaccard /= num_samples
+    epoch_dice /= num_samples
+    epoch_recall /= num_samples
+    epoch_precision /= num_samples
     return epoch_loss, [epoch_jaccard, epoch_dice, epoch_recall, epoch_precision]
 
 
