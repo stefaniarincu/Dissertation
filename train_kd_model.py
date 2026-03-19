@@ -4,14 +4,12 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import albumentations as A
-from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters, log_results_test, log_results_train_val, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, freeze_model_parameters
+from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
 from data import load_split_data, shuffle_data, SegmentationDataset
-from metrics import DiceBCELoss, compute_final_results, update_metrics
+from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models import TResUnet, TResUnetFusedModel
 
-# Set a fixed seed value
 SEED = 42
-# Set the device to cuda
 DEVICE = torch.device('cuda')
 
 # Constant for hyperparameters (moved here for claity and easy modification)
@@ -50,6 +48,7 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 # Constant for resume checkpoint path if the training stops for whatever reason
 RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_last_resume.pth'
 
+
 # Feature Aligner: Projects generic model features into the dimensions of fused dataset-specific models features
 '''class FeatureAligner(nn.Module):
     def __init__(self, student_dims, teacher_dims):
@@ -77,6 +76,7 @@ def compute_feature_alignment_loss(student_features, teacher_features):
     return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
 
 
+# Function that computes the feature alignment loss by calculating the MSE loss 
 def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
     model.train()
     teacher_model.eval()
@@ -92,27 +92,26 @@ def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
 
         # Pass the batch through the teacher model
         with torch.no_grad():
-            _, teacher_features = teacher_model(batched_images, weighting_mode=None, dataset_ids=None, return_features=True)
+            _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
         
         y_pred, student_features = model(batched_images, return_features=True)
-        dice_bce_loss = criterion(y_pred, batched_masks)
+        segmentation_loss = criterion(y_pred, batched_masks)
         feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
 
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
-        total_loss = dice_bce_loss + feature_alignment_loss
+        total_loss = segmentation_loss + feature_alignment_loss
         total_loss.backward()
         optimizer.step()
 
         epoch_loss += total_loss.item() * batched_images.size(0)
 
-        # Calculate metrics
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
 
     return compute_final_results(epoch_loss, results, len(dataloader.dataset))
 
 
-
+# Validation monitors segmentation performance only, without feature alignment loss
 def evaluate_step(model, dataloader, criterion, device):
     model.eval()
 
@@ -125,11 +124,10 @@ def evaluate_step(model, dataloader, criterion, device):
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
             y_pred = model(batched_images)
-            dice_bce_loss = criterion(y_pred, batched_masks)
+            segmentation_loss = criterion(y_pred, batched_masks)
 
-            epoch_loss += dice_bce_loss.item() * batched_images.size(0)
+            epoch_loss += segmentation_loss.item() * batched_images.size(0)
 
-            # Compute metrics
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
 
@@ -145,7 +143,7 @@ if __name__ == '__main__':
     train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
     validation_images_paths, validation_masks_paths = load_split_data(DATASET_PATH, 'val.txt')
     train_images_paths, train_masks_paths = shuffle_data((train_images_paths, train_masks_paths), SEED)
-    dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
+    dataset_log_text = f'Train set size: {len(train_images_paths)}\nValidation set size: {len(validation_images_paths)}\n'
     print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
     # Define data augmentation transforms using albumentations
@@ -167,6 +165,7 @@ if __name__ == '__main__':
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
+
     # Load the fused model checkpoint and create the teacher model for knowledge distillation    
     teacher_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
     teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False)
@@ -203,12 +202,12 @@ if __name__ == '__main__':
 
         # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
         if validation_metrics[1] > best_validation_metric:
+            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
+            print_and_save(TRAIN_LOG_PATH, data_str)
+
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(TRAIN_LOG_PATH, data_str)
         else:
             num_epochs_no_improvement += 1
 

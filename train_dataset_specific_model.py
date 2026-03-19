@@ -3,14 +3,12 @@ import time
 import torch
 from torch.utils.data import DataLoader
 import albumentations as A
-from utils import log_results_test, log_results_train_val, seed_all, create_log_file, print_and_save, log_hyperparameters
+from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, log_results_train_val, log_results_test
 from data import load_split_data, shuffle_data, SegmentationDataset
-from metrics import DiceBCELoss, compute_final_results, update_metrics
+from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models import TResUnet
 
-# Set a fixed seed value
 SEED = 42
-# Set the device to cuda
 DEVICE = torch.device('cuda')
 
 # Constant for hyperparameters (moved here for claity and easy modification)
@@ -49,7 +47,7 @@ def train_step(model, dataloader, optimizer, criterion, device):
         batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
         optimizer.zero_grad()
-        
+
         y_pred = model(batched_images)
         loss = criterion(y_pred, batched_masks)
 
@@ -58,7 +56,6 @@ def train_step(model, dataloader, optimizer, criterion, device):
 
         epoch_loss += loss.item() * batched_images.size(0)
 
-        # Compute metrics
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
 
@@ -81,7 +78,6 @@ def evaluate_step(model, dataloader, criterion, device):
 
             epoch_loss += loss.item() * batched_images.size(0)
 
-            # Compute metrics
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
 
@@ -110,13 +106,13 @@ if __name__ == '__main__':
 
     # Create datasets for training and validation
     train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, HYPERPARAMETERS['image_size'], transform=augmentation)
-    validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'])
+    validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
     
-    # Create dataloaders
+    # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
-    # Create model, optimizer, scheduler, and criterion
+    # Create model, optimizer, scheduler and criterion
     model = TResUnet().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
@@ -136,12 +132,12 @@ if __name__ == '__main__':
 
         # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
         if validation_metrics[1] > best_validation_metric:
+            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
+            print_and_save(TRAIN_LOG_PATH, data_str)
+
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(TRAIN_LOG_PATH, data_str)
         else:
             num_epochs_no_improvement += 1
 
@@ -163,7 +159,7 @@ if __name__ == '__main__':
     print_and_save(TEST_LOG_PATH, dataset_log_text)
     
     # Create dataset and dataloader for the test set of the current dataset
-    test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'])
+    test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
     
     # Load best model and check its performance

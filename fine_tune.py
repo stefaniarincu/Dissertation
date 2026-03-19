@@ -4,14 +4,12 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import albumentations as A
-from utils import log_results_test, log_results_train_val, seed_all, create_log_file, print_and_save, create_optimizer, log_hyperparameters
+from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, create_optimizer, log_results_test, log_results_train_val
 from data import load_split_data, shuffle_data, SegmentationDataset
-from metrics import DiceBCELoss, compute_final_results, update_metrics
+from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models import TResUnet
 
-# Set a fixed seed value
 SEED = 42
-# Set the device to cuda
 DEVICE = torch.device('cuda')
 
 # Constant for hyperparameters (moved here for claity and easy modification)
@@ -51,6 +49,7 @@ def set_bn_eval(module):
 def freeze_module(module):
     for param in module.parameters():
         param.requires_grad = False
+    module.eval()
     module.apply(set_bn_eval)
 
 # Function that loads pretrained model and freezes the encoder layers for fine-tuning
@@ -100,7 +99,6 @@ def train_step(model, dataloader, optimizer, criterion, device):
 
         epoch_loss += loss.item() * batched_images.size(0)
 
-        # Calculate metrics
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
 
@@ -123,10 +121,9 @@ def evaluate_step(model, dataloader, criterion, device):
 
             epoch_loss += loss.item() * batched_images.size(0)
 
-            # Calculate metrics
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
-        
+
     return compute_final_results(epoch_loss, results, len(dataloader.dataset))
 
 
@@ -139,7 +136,7 @@ if __name__ == '__main__':
     train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
     validation_images_paths, validation_masks_paths = load_split_data(DATASET_PATH, 'val.txt')
     train_images_paths, train_masks_paths = shuffle_data((train_images_paths, train_masks_paths), SEED)
-    dataset_log_text = f'Dataset Size:\nTrain: {len(train_images_paths)}\nValidation: {len(validation_images_paths)}\n'
+    dataset_log_text = f'Train set size: {len(train_images_paths)}\nValidation set size: {len(validation_images_paths)}\n'
     print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
     # Define data augmentation transforms using albumentations
@@ -152,9 +149,9 @@ if __name__ == '__main__':
 
     # Create datasets for training and validation
     train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, HYPERPARAMETERS['image_size'], transform=augmentation)
-    validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'])
+    validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
 
-    # Create dataloaders
+    # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
@@ -185,19 +182,19 @@ if __name__ == '__main__':
 
         # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
         if validation_metrics[1] > best_validation_metric:
+            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
+            print_and_save(TRAIN_LOG_PATH, data_str)
+
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(TRAIN_LOG_PATH, data_str)
         else:
             num_epochs_no_improvement += 1
 
         # Write the epoch results to the log file
         end_time = time.time()
         log_results_train_val(TRAIN_LOG_PATH, epoch, train_loss, train_metrics, validation_loss, validation_metrics, start_time, end_time)
-        
+
         # If early stopping is triggered, break the training loop
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
             print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
@@ -212,7 +209,7 @@ if __name__ == '__main__':
     print_and_save(TEST_LOG_PATH, dataset_log_text)
     
     # Create dataset and dataloader for the test set of the current dataset
-    test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'])
+    test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
     
     # Load best model and check its performance

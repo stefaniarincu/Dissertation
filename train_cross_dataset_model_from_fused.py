@@ -4,14 +4,12 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import albumentations as A
-from utils import freeze_model_parameters, log_results_train_val, seed_all, create_log_file, print_and_save, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, log_results_test, log_hyperparameters
+from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
 from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler
-from metrics import DiceBCELoss, compute_final_results, update_metrics
+from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models import TResUnet, TResUnetFusedModel
 
-# Set a fixed seed value
 SEED = 42
-# Set the device to cuda
 DEVICE = torch.device('cuda')
 
 # Constant for hyperparameters (moved here for claity and easy modification)
@@ -22,7 +20,8 @@ HYPERPARAMETERS = {
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
-    'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
+    # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert and None if no weighted mode wanted
+    'dsm_weighting_mode': 2,
 }
 
 # Dictionary that maps dataset names to an id
@@ -79,6 +78,7 @@ def compute_feature_alignment_loss(generic_features, fused_features):
     return sum(F.mse_loss(generic_feature, fused_feature) for generic_feature, fused_feature in zip(generic_features, fused_features)) / len(fused_features)
 
 
+# Training uses both segmentation loss and feature alignment loss
 def train_step(model, dataloader, optimizer, criterion, fused_model, weighting_mode, device):
     model.train()
     fused_model.eval()
@@ -96,27 +96,27 @@ def train_step(model, dataloader, optimizer, criterion, fused_model, weighting_m
 
         # Pass the batch through the fused dataset-specific models
         with torch.no_grad():
-            _, fused_features = fused_model(batched_images, weighting_mode=weighting_mode, dataset_ids=batched_dataset_ids, return_features=True)
-        
+            _, fused_features = fused_model(batched_images, dataset_ids=batched_dataset_ids, weighting_mode=weighting_mode, return_features=True)
+
         y_pred, cross_dataset_features = model(batched_images, return_features=True)
-        dice_bce_loss = criterion(y_pred, batched_masks)
+        segmentation_loss = criterion(y_pred, batched_masks)
         feature_alignment_loss = compute_feature_alignment_loss(cross_dataset_features, fused_features)
 
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
-        total_loss = dice_bce_loss + feature_alignment_loss
+        total_loss = segmentation_loss + feature_alignment_loss
         total_loss.backward()
         optimizer.step()
 
         epoch_loss += total_loss.item() * batched_images.size(0)
         processed_samples += batched_images.size(0)
 
-        # Calculate metrics
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
     
     return compute_final_results(epoch_loss, results, processed_samples)
 
 
+# Validation monitors segmentation performance only, without feature alignment loss
 def evaluate_step(model, dataloader, criterion, device):
     model.eval()
 
@@ -130,12 +130,11 @@ def evaluate_step(model, dataloader, criterion, device):
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
             y_pred = model(batched_images)
-            dice_bce_loss = criterion(y_pred, batched_masks)
+            segmentation_loss = criterion(y_pred, batched_masks)
 
-            epoch_loss += dice_bce_loss.item() * batched_images.size(0)
+            epoch_loss += segmentation_loss.item() * batched_images.size(0)
             processed_samples += batched_images.size(0)
 
-            # Calculate metrics
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
 
@@ -165,8 +164,8 @@ if __name__ == '__main__':
     # Create datasets for training and validation
     train_dataset = SegmentationDatasetWithDatasetId(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], transform=augmentation)
     validation_dataset = SegmentationDatasetWithDatasetId(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
-    
-    # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
+
+    # Create balanced batch samplers for training and validation
     train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=True, allow_incomplete_last_batch=True)
     validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=False, allow_incomplete_last_batch=True)
 
@@ -193,12 +192,14 @@ if __name__ == '__main__':
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
 
+    # Initialize variables for the starting epoch and tracking the best validation metric and early stopping
     start_epoch = 0
     best_validation_metric = -1.0
     num_epochs_no_improvement = 0
 
     # If resume checkpoint exists, load it
     if os.path.exists(RESUME_CHECKPOINT_PATH):
+        # Replace the variables with the values from the loaded checkpoint
         start_epoch, best_validation_metric, num_epochs_no_improvement = load_resume_checkpoint(model, optimizer, scheduler, RESUME_CHECKPOINT_PATH, DEVICE)
 
     for epoch in range(start_epoch, HYPERPARAMETERS['num_epochs']):
@@ -206,18 +207,18 @@ if __name__ == '__main__':
         train_sampler.set_epoch(epoch)
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, fused_model, HYPERPARAMETERS['dsm_weight_mode'], DEVICE)
+        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, fused_model, HYPERPARAMETERS['dsm_weighting_mode'], DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 
         # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
         if validation_metrics[1] > best_validation_metric:
+            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
+            print_and_save(TRAIN_LOG_PATH, data_str)
+
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(TRAIN_LOG_PATH, data_str)
         else:
             num_epochs_no_improvement += 1
 

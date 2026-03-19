@@ -132,17 +132,16 @@ def freeze_model_parameters(model):
 
 # Function that creates an optimizer for the trainable parameters
 def create_optimizer(model, learning_rate):
-    trainable_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    trainable_parameters = [param for param in model.parameters() if param.requires_grad]
     return torch.optim.Adam(trainable_parameters, lr=learning_rate)
 
 
 ''' ===================================== LOAD DATASET-SPECIFIC MODELS  ===================================== '''
 
 # Function that loads dataset specific models from specified checkpoints and returns them
-def load_dataset_specific_models(checkpoints, models_by_dataset_id, device):
-    for dataset_id, checkpoint_path in checkpoints.items():
+def load_dataset_specific_models(checkpoint_paths_by_dataset_id, models_by_dataset_id, device):
+    for dataset_id, checkpoint_path in checkpoint_paths_by_dataset_id.items():
         models_by_dataset_id[dataset_id].load_state_dict(torch.load(checkpoint_path, map_location=device))
-        models_by_dataset_id[dataset_id].to(device)
 
         models_by_dataset_id[dataset_id] = freeze_model_parameters(models_by_dataset_id[dataset_id])   
         

@@ -5,12 +5,10 @@ from torch.utils.data import DataLoader
 import albumentations as A
 from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, log_results_train_val, log_results_test
 from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler
-from metrics import DiceBCELoss, compute_final_results, update_metrics
+from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models import TResUnet
 
-# Set a fixed seed value
 SEED = 42
-# Set the device to cuda
 DEVICE = torch.device('cuda')
 
 # Constant for hyperparameters (moved here for claity and easy modification)
@@ -57,15 +55,14 @@ def train_step(model, dataloader, optimizer, criterion, device):
         optimizer.zero_grad()
 
         y_pred = model(batched_images)
-        dice_bce_loss = criterion(y_pred, batched_masks)
-        
-        dice_bce_loss.backward()
+        loss = criterion(y_pred, batched_masks)
+
+        loss.backward()
         optimizer.step()
 
-        epoch_loss += dice_bce_loss.item() * batched_images.size(0)
+        epoch_loss += loss.item() * batched_images.size(0)
         processed_samples += batched_images.size(0)
 
-        # Calculate metrics
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
 
@@ -85,12 +82,11 @@ def evaluate_step(model, dataloader, criterion, device):
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
             y_pred = model(batched_images)
-            dice_bce_loss = criterion(y_pred, batched_masks)
-            
-            epoch_loss += dice_bce_loss.item() * batched_images.size(0)
+            loss = criterion(y_pred, batched_masks)
+
+            epoch_loss += loss.item() * batched_images.size(0)
             processed_samples += batched_images.size(0)
 
-            # Calculate metrics
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
 
@@ -121,7 +117,7 @@ if __name__ == '__main__':
     train_dataset = SegmentationDatasetWithDatasetId(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], transform=augmentation)
     validation_dataset = SegmentationDatasetWithDatasetId(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
     
-    # Create balanced batch sampler for training dataset to ensure that each batch contains samples from each dataset according to the specified ratios
+    # Create balanced batch samplers for training and validation
     train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=True, allow_incomplete_last_batch=True)
     validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=False, allow_incomplete_last_batch=True)
 
@@ -129,18 +125,20 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
 
-    # Create model, optimizer, scheduler, and criterion
+    # Create model, optimizer, scheduler and criterion
     model = TResUnet().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
 
+    # Initialize variables for the starting epoch and tracking the best validation metric and early stopping
     start_epoch = 0
     best_validation_metric = -1.0
     num_epochs_no_improvement = 0
 
     # If resume checkpoint exists, load it
     if os.path.exists(RESUME_CHECKPOINT_PATH):
+        # Replace the variables with the values from the loaded checkpoint
         start_epoch, best_validation_metric, num_epochs_no_improvement = load_resume_checkpoint(model, optimizer, scheduler, RESUME_CHECKPOINT_PATH, DEVICE)
 
     for epoch in range(start_epoch, HYPERPARAMETERS['num_epochs']):
@@ -154,12 +152,12 @@ if __name__ == '__main__':
 
         # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
         if validation_metrics[1] > best_validation_metric:
+            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
+            print_and_save(TRAIN_LOG_PATH, data_str)
+
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
-
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(TRAIN_LOG_PATH, data_str)
         else:
             num_epochs_no_improvement += 1
 
