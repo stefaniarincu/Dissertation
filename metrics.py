@@ -6,7 +6,7 @@ import numpy as np
 
 ''' ================================= DICE BCE (Segmentation) LOSS FUNCTION ================================= '''
 
-# Class for the standard Dice + BCE loss function used for training the model
+# Class for the standard Dice + BCE loss function used for segmentation task when training the models
 class DiceBCELoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -20,6 +20,7 @@ class DiceBCELoss(nn.Module):
 
         intersection = (inputs * targets).sum()
         dice_loss = 1 - (2.0 * intersection + smooth) / (inputs.sum() + targets.sum() + smooth)
+        
         return bce_loss + dice_loss
 
 
@@ -29,6 +30,7 @@ class DiceBCELoss(nn.Module):
 def compute_metrics(y_true, y_pred):
     y_true = y_true.detach().cpu().numpy()
 
+    # Pass the output through sigmoid and convert to binary mask
     y_pred = torch.sigmoid(y_pred)
     y_pred = y_pred.detach().cpu().numpy()
 
@@ -45,9 +47,9 @@ def compute_metrics(y_true, y_pred):
     score_dice = (2.0 * intersection + 1e-15) / (y_true.sum() + y_pred.sum() + 1e-15)
     score_jaccard = (intersection + 1e-15) / (union + 1e-15)
 
-    return [score_jaccard, score_dice, score_recall, score_precision]
+    return score_jaccard, score_dice, score_recall, score_precision
 
-# Helper function that updates the metrics dictionary with the computed metrics for a given pair of true and predicted masks
+# Helper function that updates the accumulated metric sums for a pair of true and predicted masks
 def update_metrics(results, y_true, y_pred):
     score_jaccard, score_dice, score_recall, score_precision = compute_metrics(y_true, y_pred)
     results['jaccard'] += score_jaccard
@@ -55,8 +57,10 @@ def update_metrics(results, y_true, y_pred):
     results['recall'] += score_recall
     results['precision'] += score_precision
 
+# Helper function that computes the final average epoch loss and metrics
 def compute_final_results(epoch_loss, results, num_samples):
     epoch_loss /= num_samples
     for key in results:
         results[key] /= num_samples
+    
     return epoch_loss, [results['jaccard'], results['dice'], results['recall'], results['precision']]

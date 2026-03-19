@@ -21,11 +21,12 @@ def seed_all(seed):
 
 ''' =============================================== LOGGING =============================================== '''
 
-# Function that ensures that a log file exists and writes the start datetime to it
+# Function that ensures a log file exists and writes the start datetime to it
 def create_log_file(log_path):
-    # If it exists write the start datetime else create the file and write the start datetime
+    # If it exists print a message
     if os.path.exists(log_path):
         print('Log file already exists')
+    # Otherwise, create an empty log file
     else:
         with open(log_path, 'w') as f:
             f.write('\n')
@@ -34,12 +35,34 @@ def create_log_file(log_path):
     start_datetime = str(datetime.datetime.now())
     print_and_save(log_path, start_datetime)
 
-# Function that prints a message and also saves it to a specified file
+# Function that prints a message and saves it to a specified file
 def print_and_save(file_path, text):
     print(text)
     with open(file_path, 'a') as file:
         file.write(text)
         file.write('\n')
+
+# Function that logs the hyperparameters to the log file in a readable format
+def log_hyperparameters(log_path, hyperparameters):
+    hyperparameters_log_text = ''
+    for key, value in hyperparameters.items():
+        hyperparameters_log_text += f'{key}: {value}\n'
+    print_and_save(log_path, hyperparameters_log_text)
+
+# Function that logs the results after a training and validation epoch to the log file in a readable format
+def log_results_train_val(log_path, epoch, train_loss, train_metrics, validation_loss, validation_metrics, start_time, end_time):
+    # Write the epoch results to the log file
+    epoch_duration_min = int((end_time - start_time) / 60)
+    epoch_duration_sec = int((end_time - start_time) - (epoch_duration_min * 60))
+    epoch_log_text = f'Epoch {epoch + 1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
+    epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
+    epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
+    print_and_save(log_path, epoch_log_text)
+
+# Function that logs the test results to the log file in a readable format
+def log_results_test(log_path, test_loss, test_metrics):
+    test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n'
+    print_and_save(log_path, test_log_text)
 
 
 ''' ===================================== CHECKPOINT TO RESUME TRAINING ===================================== '''
@@ -101,12 +124,13 @@ def freeze_model_parameters(model):
     for param in model.parameters():
         param.requires_grad = False
     model.eval()
+
     return model
 
 
-''' ============================== CREATE OPTIMIZER FROM TRAINABLE PARAMETERS ============================== '''
+''' ================================== OPTIMIZER FROM TRAINABLE PARAMETERS ================================== '''
 
-# Function that creates the optimizer with just the trainable parameters
+# Function that creates an optimizer for the trainable parameters
 def create_optimizer(model, learning_rate):
     trainable_parameters = filter(lambda p: p.requires_grad, model.parameters())
     return torch.optim.Adam(trainable_parameters, lr=learning_rate)
@@ -114,14 +138,15 @@ def create_optimizer(model, learning_rate):
 
 ''' ===================================== LOAD DATASET-SPECIFIC MODELS  ===================================== '''
 
-# Function that loads dataset specific models from specified checkpoints and returns a dictionary that maps dataset ids to the corresponding model
-def load_dataset_specific_models(checkpoints, dataset_specific_models, device):
+# Function that loads dataset specific models from specified checkpoints and returns them
+def load_dataset_specific_models(checkpoints, models_by_dataset_id, device):
     for dataset_id, checkpoint_path in checkpoints.items():
-        dataset_specific_models[dataset_id].load_state_dict(torch.load(checkpoint_path, map_location=device))
-        dataset_specific_models[dataset_id].to(device)
+        models_by_dataset_id[dataset_id].load_state_dict(torch.load(checkpoint_path, map_location=device))
+        models_by_dataset_id[dataset_id].to(device)
 
-        dataset_specific_models[dataset_id] = freeze_model_parameters(dataset_specific_models[dataset_id])
-    return dataset_specific_models
+        models_by_dataset_id[dataset_id] = freeze_model_parameters(models_by_dataset_id[dataset_id])   
+        
+    return models_by_dataset_id
 
 
 ''' ============================== DETERMINE WEIGHTS FOR DATASET-SPECIFIC MODELS ============================== '''
@@ -130,7 +155,7 @@ def load_dataset_specific_models(checkpoints, dataset_specific_models, device):
 def compute_dataset_specific_weights(dataset_ids, weighting_mode, num_dataset_specific_models):
     # one hot encoding = > 1 for the dataset specific model corresponding to the dataset and 0 for the others
     if weighting_mode == 0: 
-        return F.one_hot(dataset_ids, num_classes=num_dataset_specific_models).float().to(dataset_ids.device)
+        return F.one_hot(dataset_ids, num_classes=num_dataset_specific_models).float()
     # uniform weights = > 1/num_dataset_specific_models for all dataset specific models
     elif weighting_mode == 1: 
         return torch.full((dataset_ids.shape[0], num_dataset_specific_models), 1.0 / num_dataset_specific_models, device=dataset_ids.device, dtype=torch.float32)
@@ -138,4 +163,3 @@ def compute_dataset_specific_weights(dataset_ids, weighting_mode, num_dataset_sp
     elif weighting_mode == 2: 
         weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
         return weights.scatter_(1, dataset_ids.view(-1, 1), 0.5)
-    

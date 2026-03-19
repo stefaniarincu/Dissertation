@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from torchvision.models.utils import load_state_dict_from_url
-from utils import determine_weights_for_dataset_specific_models
+from torch.hub import load_state_dict_from_url
+from torch.nn import functional as F
 
 
 ''' ============================================ ResNet BACKBONE ============================================ '''
@@ -488,7 +488,7 @@ class ConvolveResidualBlock(nn.Module):
         # Dynamic weighted aggregation with residual
         return x1 + self.alpha * attn_output  # Learnable weight to adjust influence'''
 
-class FusedTResUnetModel(nn.Module):
+class TResUnetFusedModel(nn.Module):
     def __init__(self, dataset_specific_models):
         super().__init__()
 
@@ -519,12 +519,27 @@ class FusedTResUnetModel(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
+        # Keep the dataset specific models in evaluation mode to prevent their weights from being updated during training
         self.dataset_specific_1.eval()
         self.dataset_specific_2.eval()
         self.dataset_specific_3.eval()
         return self
+    
+    @staticmethod
+    # Determine the weights for each dataset specific model based on the specified mode and the dataset ids of the samples in the batch
+    def compute_dataset_specific_weights(dataset_ids, weighting_mode, num_dataset_specific_models):
+        # one hot encoding = > 1 for the dataset specific model corresponding to the dataset and 0 for the others
+        if weighting_mode == 0: 
+            return F.one_hot(dataset_ids, num_classes=num_dataset_specific_models).float()
+        # uniform weights = > 1/num_dataset_specific_models for all dataset specific models
+        elif weighting_mode == 1: 
+            return torch.full((dataset_ids.shape[0], num_dataset_specific_models), 1.0 / num_dataset_specific_models, device=dataset_ids.device, dtype=torch.float32)
+        # biased weights = > 0.5 for the dataset specific model corresponding to the dataset and 0.25 for the others
+        elif weighting_mode == 2: 
+            weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
+            return weights.scatter_(1, dataset_ids.view(-1, 1), 0.5)
 
-    def forward(self, x, weighting_mode=None, dataset_ids=None, return_features=False):
+    def forward(self, x, dataset_ids=None, weighting_mode=None, return_features=False):
         with torch.no_grad():
             # Encode features from each dataset specific model
             [ds1_s1, ds1_s2, ds1_s3, ds1_b] = self.dataset_specific_1.encode(x)
@@ -536,8 +551,8 @@ class FusedTResUnetModel(nn.Module):
         #ds1_s2 = self.cross_attn2(ds1_s2, ds2_s2) + self.cross_attn2(ds1_s2, ds3_s2) + self.cross_attn2(ds2_s2, ds3_s2)
         #ds1_s3 = self.cross_attn3(ds1_s3, ds2_s3) + self.cross_attn3(ds1_s3, ds3_s3) + self.cross_attn3(ds2_s3, ds3_s3)
 
-        if weighting_mode is not None:
-            weights = determine_weights_for_dataset_specific_models(dataset_ids, weighting_mode, 3)
+        if weighting_mode is not None and dataset_ids is not None:
+            weights = self.compute_dataset_specific_weights(dataset_ids, weighting_mode, 3)
             weights_1 = weights[:, 0].view(-1, 1, 1, 1)
             weights_2 = weights[:, 1].view(-1, 1, 1, 1)
             weights_3 = weights[:, 2].view(-1, 1, 1, 1)
@@ -574,5 +589,4 @@ class FusedTResUnetModel(nn.Module):
 
         if return_features:
             return y, [conv_s1, conv_s2, conv_s3, conv_bottleneck]
-        else:
-            return y
+        return y

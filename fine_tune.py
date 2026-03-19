@@ -4,11 +4,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import albumentations as A
-from utils import seed_all, create_log_file, print_and_save, create_optimizer
+from utils import log_results_test, log_results_train_val, seed_all, create_log_file, print_and_save, create_optimizer, log_hyperparameters
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, compute_final_results, update_metrics
 from models import TResUnet
-
 
 # Set a fixed seed value
 SEED = 42
@@ -42,6 +41,7 @@ CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fine_tuned_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
+
 # Set the batch normalization layers to evaluation mode
 def set_bn_eval(module):
     if isinstance(module, nn.BatchNorm2d):
@@ -73,8 +73,11 @@ def load_pretrained_model(pretrained_checkpoint_path, device):
 
     return pretrained_model
 
+
 def train_step(model, dataloader, optimizer, criterion, device):
     model.train()
+
+    # Set the encoder layers and bottleneck blocks to evaluation mode
     for num_layer in range(4):
         getattr(model, f'layer{num_layer}').eval() 
     for num_block in range(1, 3):
@@ -103,6 +106,7 @@ def train_step(model, dataloader, optimizer, criterion, device):
 
     return compute_final_results(epoch_loss, results, len(dataloader.dataset))
 
+
 def evaluate_step(model, dataloader, criterion, device):
     model.eval()
 
@@ -129,10 +133,7 @@ def evaluate_step(model, dataloader, criterion, device):
 if __name__ == '__main__':
     seed_all(SEED)
     create_log_file(TRAIN_LOG_PATH)
-
-    # Log hyperparameters
-    hyperparameters_log_text = f'Image size: {HYPERPARAMETERS["image_size"]}\nBatch size: {HYPERPARAMETERS["batch_size"]}\nLR: {HYPERPARAMETERS["init_learning_rate"]}\nEpochs: {HYPERPARAMETERS["num_epochs"]}\nScheduler Patience: {HYPERPARAMETERS["scheduler_patience"]}\nEarly Stopping Patience: {HYPERPARAMETERS["early_stopping_patience"]}\n'
-    print_and_save(TRAIN_LOG_PATH, hyperparameters_log_text)
+    log_hyperparameters(TRAIN_LOG_PATH, HYPERPARAMETERS)
 
     # Load the images and masks file names for training and validation
     train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
@@ -170,33 +171,34 @@ if __name__ == '__main__':
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
 
+    # Initialize variables for tracking the best validation metric and early stopping
     best_validation_metric = -1.0
     num_epochs_no_improvement = 0
 
     for epoch in range(HYPERPARAMETERS['num_epochs']):
         start_time = time.time()
 
+        # Train and evaluate for one epoch
         train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 
+        # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
         if validation_metrics[1] > best_validation_metric:
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(TRAIN_LOG_PATH, data_str)
             best_validation_metric = validation_metrics[1]
             torch.save(model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
+
+            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
+            print_and_save(TRAIN_LOG_PATH, data_str)
         else:
             num_epochs_no_improvement += 1
 
+        # Write the epoch results to the log file
         end_time = time.time()
-        epoch_duration_min = int((end_time - start_time) / 60)
-        epoch_duration_sec = int((end_time - start_time) - (epoch_duration_min * 60))
-        epoch_log_text = f'Epoch {epoch + 1} | Epoch Time: {epoch_duration_min}m {epoch_duration_sec}s\n'
-        epoch_log_text += f'\tTrain Loss: {train_loss:.4f} - Jaccard: {train_metrics[0]:.4f} - Dice (F1): {train_metrics[1]:.4f} - Recall: {train_metrics[2]:.4f} - Precision: {train_metrics[3]:.4f}\n'
-        epoch_log_text += f'\tValidation Loss: {validation_loss:.4f} - Jaccard: {validation_metrics[0]:.4f} - Dice (F1): {validation_metrics[1]:.4f} - Recall: {validation_metrics[2]:.4f} - Precision: {validation_metrics[3]:.4f}\n'
-        print_and_save(TRAIN_LOG_PATH, epoch_log_text)
-
+        log_results_train_val(TRAIN_LOG_PATH, epoch, train_loss, train_metrics, validation_loss, validation_metrics, start_time, end_time)
+        
+        # If early stopping is triggered, break the training loop
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
             print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
             break
@@ -216,5 +218,4 @@ if __name__ == '__main__':
     # Load best model and check its performance
     model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
     test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
-    test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n'
-    print_and_save(TEST_LOG_PATH, test_log_text)
+    log_results_test(TEST_LOG_PATH, test_loss, test_metrics)

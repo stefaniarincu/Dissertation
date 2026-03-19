@@ -11,12 +11,13 @@ import random
  
 # Function that loads a specified split data from specified path
 def load_split_data(dataset_path, split_filename):
-    split_file = os.path.join(dataset_path, split_filename)
-    with open(split_file, 'r') as f:
-        file_names = [line.strip() for line in f if line.strip()]
+    split_path = os.path.join(dataset_path, split_filename)
+    with open(split_path, 'r') as f:
+        filenames = [line.strip() for line in f if line.strip()]
 
-    images_paths = [os.path.join(dataset_path, 'images', name) for name in file_names]
-    masks_paths = [os.path.join(dataset_path, 'masks', name) for name in file_names]
+    images_paths = [os.path.join(dataset_path, 'images', name) for name in filenames]
+    masks_paths = [os.path.join(dataset_path, 'masks', name) for name in filenames]
+    
     return images_paths, masks_paths
 
 # Function that loads data from all datasets
@@ -41,23 +42,21 @@ def load_split_data_all_datasets(datasets_paths, split_filename):
 
 ''' ============================================= SHUFFLING DATA ============================================= '''
 
-# Function that shuffles the a given data (images and masks and in some cases ids)
+# Function that shuffles the given data (images and masks and in some cases ids)
 def shuffle_data(data, random_state):
     # If the length of the data is 2, then unpack the images and masks paths and shuffle them
     if len(data) == 2:
         images_paths, masks_paths = data
-        images_paths, masks_paths = shuffle(images_paths, masks_paths, random_state=random_state)
-        return images_paths, masks_paths
+        return shuffle(images_paths, masks_paths, random_state=random_state)
+    # If the length of the data is 3, then unpack the images and masks paths and ids and shuffle them
     else:
-        # If the length of the data is 3, then unpack the images and masks paths and ids and shuffle them
         images_paths, masks_paths, datasets_ids = data
-        images_paths, masks_paths, datasets_ids = shuffle(images_paths, masks_paths, datasets_ids, random_state=random_state)
-        return images_paths, masks_paths, datasets_ids
+        return shuffle(images_paths, masks_paths, datasets_ids, random_state=random_state)
     
 
 ''' ============================================ DATASET CLASSES ============================================ '''
 
-# Segmentation Dataset class for loading images and masks
+# Base segmentation Dataset class for loading images and masks
 class BaseSegmentationDataset(Dataset):
     def __init__(self, images_paths, masks_paths, image_size, transform=None):
         super().__init__()
@@ -131,7 +130,10 @@ class BalancedBatchSampler(Sampler):
         self.unique_dataset_ids = sorted(np.unique(self.dataset_ids).tolist())
         self.indices_per_dataset = {dataset_id: np.where(self.dataset_ids == dataset_id)[0].tolist() for dataset_id in self.unique_dataset_ids}
         
+        # Minimum number of samples each dataset contributes to every batch
         self.base_count = self.batch_size // len(self.indices_per_dataset)
+
+        # Remaining samples are rotated across datasets from batch to batch
         self.remainder = self.batch_size % len(self.indices_per_dataset)
         
         if self.allow_incomplete_last_batch:
@@ -146,6 +148,7 @@ class BalancedBatchSampler(Sampler):
         return self.num_batches
     
     def __iter__(self):
+        # Create a deterministic random generator for shuffling indices
         if self.shuffle:
             random_generator = random.Random(self.seed + self.epoch)
 
@@ -162,6 +165,7 @@ class BalancedBatchSampler(Sampler):
         for batch_index in range(self.num_batches):
             sample_counts_per_dataset = {dataset_id: self.base_count for dataset_id in self.unique_dataset_ids}
             
+            # Distrbute the remaining samples by rotating which datasets receive one extra sample
             for extra_index in range(self.remainder):
                 dataset_id = self.unique_dataset_ids[(batch_index + extra_index + self.epoch) % len(self.unique_dataset_ids)]
                 sample_counts_per_dataset[dataset_id] += 1
@@ -182,27 +186,26 @@ class BalancedBatchSampler(Sampler):
                     current_indices[dataset_id] = end_index
 
             num_missing_samples = self.batch_size - len(batch)
-            if num_missing_samples > 0:
-                if self.allow_incomplete_last_batch:
-                    pass
-                else:
-                    for dataset_id in self.unique_dataset_ids:
-                        if num_missing_samples == 0:
-                            break
+            
+            # If full batches are required, try to fill the missing positions with any remaining samples
+            if num_missing_samples > 0 and not self.allow_incomplete_last_batch:
+                for dataset_id in self.unique_dataset_ids:
+                    if num_missing_samples == 0:
+                        break
 
-                        dataset_indices = datasets_indices[dataset_id]
-                        start_index = current_indices[dataset_id]
-                        num_remaining_samples = len(dataset_indices) - start_index
+                    dataset_indices = datasets_indices[dataset_id]
+                    start_index = current_indices[dataset_id]
+                    num_remaining_samples = len(dataset_indices) - start_index
 
-                        if num_remaining_samples > 0:
-                            num_samples_to_take = min(num_missing_samples, num_remaining_samples)
-                            end_index = start_index + num_samples_to_take
-                            batch.extend(dataset_indices[start_index:end_index])
-                            current_indices[dataset_id] = end_index
-                            num_missing_samples -= num_samples_to_take
+                    if num_remaining_samples > 0:
+                        num_samples_to_take = min(num_missing_samples, num_remaining_samples)
+                        end_index = start_index + num_samples_to_take
+                        batch.extend(dataset_indices[start_index:end_index])
+                        current_indices[dataset_id] = end_index
+                        num_missing_samples -= num_samples_to_take
 
-                    if len(batch) < self.batch_size:
-                        return
+                if len(batch) < self.batch_size:
+                    return
 
             if len(batch) == 0:
                 return
