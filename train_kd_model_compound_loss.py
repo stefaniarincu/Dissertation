@@ -19,8 +19,15 @@ HYPERPARAMETERS = {
     'num_epochs': 150,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 20
+    'early_stopping_patience': 20,
+    'alpha': 0.5,
+    'initial_temperature': 2,
+    'initial_contrastive_weight': 0.1,
+    'max_contrastive_weight': 0.5,
+    'weight_increment': 0.01,
+    'map_loss_weight': 0.3
 }
+
 
 # Dictionary that maps dataset names to an id
 IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
@@ -29,7 +36,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'bmshare', 'brats'
+DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
@@ -40,7 +47,7 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout_compound_loss/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -73,14 +80,53 @@ def compute_feature_alignment_loss(student_features, teacher_features):
 
     return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
 
+# Flatten features for contrastive loss
+def flatten_features(features):
+    flat_features = [f.view(f.size(0), -1) for f in features]
+    return torch.cat(flat_features, dim=1)
 
-# Function that computes the feature alignment loss by calculating the MSE loss 
-def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
+# Contrastive loss
+def contrastive_loss(student_features, teacher_features, temperature=0.5):
+    student_features_concat = F.normalize(flatten_features(student_features), p=2, dim=1)
+    teacher_features_concat = F.normalize(flatten_features(teacher_features), p=2, dim=1)
+
+    similarity_matrix_student = torch.matmul(student_features_concat, student_features_concat.t())
+    similarity_matrix_teacher = torch.matmul(teacher_features_concat, teacher_features_concat.t())
+
+    similarity_student = F.softmax(similarity_matrix_student / temperature, dim=1)
+    similarity_teacher = F.softmax(similarity_matrix_teacher / temperature, dim=1)
+    return F.kl_div(similarity_student.log(), similarity_teacher, reduction='batchmean')
+
+# Cosine similarity loss
+def cosine_similarity_loss(student_features, teacher_features):
+    '''aligners = [
+        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(
+            device)
+        for i in range(len(student_features))
+    ]
+    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
+
+    return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, teacher_features)) / len(student_features)
+
+# Dynamic curriculum for scheduling KD losses
+def dynamic_curriculum(epoch, max_epoch, warmup_epochs=5, ramp_epochs=10):
+    if epoch < warmup_epochs:
+        return 0.0  # No KD in warmup
+    elif epoch < warmup_epochs + ramp_epochs:
+        return (epoch - warmup_epochs) / ramp_epochs  # Gradually ramp up KD
+    else:
+        return 1.0  # Full KD after ramp-up
+
+
+# Function that computes the feature alignment loss by calculating the MSE, cosine and constrastive losses
+def train_step(model, dataloader, optimizer, criterion, teacher_model, device, epoch, max_epoch, alpha=0.5, temperature=2.0, contrastive_weight=0.5, map_loss_weight=0.3):
     model.train()
     teacher_model.eval()
     
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
+
+    curriculum_factor = dynamic_curriculum(epoch, max_epoch)
 
     for batched_images, batched_masks in dataloader:
         batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
@@ -95,9 +141,14 @@ def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
         y_pred, student_features = model(batched_images, return_features=True)
         segmentation_loss = criterion(y_pred, batched_masks)
         feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
+        kd_contrastive_loss = contrastive_loss(student_features, teacher_features, temperature=temperature)
+        similarity_loss = cosine_similarity_loss(student_features, teacher_features)
 
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
-        total_loss = segmentation_loss + feature_alignment_loss
+        total_loss = (alpha * segmentation_loss +
+                    curriculum_factor * contrastive_weight * kd_contrastive_loss +
+                    curriculum_factor * map_loss_weight * feature_alignment_loss +
+                    curriculum_factor * 0.1 * similarity_loss)
         #print(f'Segmentation Loss: {segmentation_loss.item():.4f}, Feature Alignment Loss: {feature_alignment_loss.item():.4f}, Total Loss: {total_loss.item():.4f}')
         total_loss.backward()
         optimizer.step()
@@ -167,8 +218,8 @@ if __name__ == '__main__':
 
     # Load the fused model checkpoint and create the teacher model for knowledge distillation    
     teacher_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
-    teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
-    '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False )
+    teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False)
+    '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False )
     print(incompatible.missing_keys)
     print(incompatible.unexpected_keys)'''
     teacher_model = freeze_model_parameters(teacher_model)
@@ -180,6 +231,7 @@ if __name__ == '__main__':
     model = TResUnet().to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'])
     criterion = DiceBCELoss()
 
     # Initialize variables for tracking the best validation metric and early stopping
@@ -189,8 +241,12 @@ if __name__ == '__main__':
     for epoch in range(HYPERPARAMETERS['num_epochs']):
         start_time = time.time()
 
+        # Dynamic curriculum scheduling
+        temperature = max(0.5, HYPERPARAMETERS['initial_temperature'] * (0.9 ** (epoch // 5)))
+        contrastive_weight = min(HYPERPARAMETERS['max_contrastive_weight'], HYPERPARAMETERS['initial_contrastive_weight'] + epoch * HYPERPARAMETERS['weight_increment'])
+
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_model, DEVICE)
+        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_model, DEVICE, epoch, HYPERPARAMETERS['num_epochs'], alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 

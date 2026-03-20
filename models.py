@@ -438,7 +438,7 @@ class ConvolveResidualBlock(nn.Module):
 
         return out
     
-'''class CrossAttentionBlock(nn.Module):
+class CrossAttentionBlock(nn.Module):
     def __init__(self, in_channels, num_heads=8):
         super().__init__()
         self.query = nn.Conv2d(in_channels, in_channels, kernel_size=1)
@@ -486,7 +486,7 @@ class ConvolveResidualBlock(nn.Module):
         attn_output = attn_output.view(b, h, w, c).permute(0, 3, 1, 2)  # Reshape back
 
         # Dynamic weighted aggregation with residual
-        return x1 + self.alpha * attn_output  # Learnable weight to adjust influence'''
+        return x1 + self.alpha * attn_output  # Learnable weight to adjust influence
 
 class TResUnetFusedModel(nn.Module):
     def __init__(self, dataset_specific_models):
@@ -498,9 +498,9 @@ class TResUnetFusedModel(nn.Module):
         self.dataset_specific_3 = dataset_specific_models[2]
 
         # Cross-attention blocks for each encoder level
-        #self.cross_attn1 = CrossAttentionBlock(64)
-        #self.cross_attn2 = CrossAttentionBlock(256)
-        #self.cross_attn3 = CrossAttentionBlock(512)
+        '''self.cross_attn1 = CrossAttentionBlock(64)
+        self.cross_attn2 = CrossAttentionBlock(256)
+        self.cross_attn3 = CrossAttentionBlock(512)'''
 
         # Convolutional blocks for combined encoder outputs
         self.conv_1 = ConvolveResidualBlock(1536)
@@ -547,9 +547,9 @@ class TResUnetFusedModel(nn.Module):
             [ds3_s1, ds3_s2, ds3_s3, ds3_b] = self.dataset_specific_3.encode(x)
 
         # Cross-attention on encoder outputs
-        #ds1_s1 = self.cross_attn1(ds1_s1, ds2_s1) + self.cross_attn1(ds1_s1, ds3_s1) + self.cross_attn1(ds2_s1, ds3_s1)
-        #ds1_s2 = self.cross_attn2(ds1_s2, ds2_s2) + self.cross_attn2(ds1_s2, ds3_s2) + self.cross_attn2(ds2_s2, ds3_s2)
-        #ds1_s3 = self.cross_attn3(ds1_s3, ds2_s3) + self.cross_attn3(ds1_s3, ds3_s3) + self.cross_attn3(ds2_s3, ds3_s3)
+        '''ds1_s1 = self.cross_attn1(ds1_s1, ds2_s1) + self.cross_attn1(ds1_s1, ds3_s1) + self.cross_attn1(ds2_s1, ds3_s1)
+        ds1_s2 = self.cross_attn2(ds1_s2, ds2_s2) + self.cross_attn2(ds1_s2, ds3_s2) + self.cross_attn2(ds2_s2, ds3_s2)
+        ds1_s3 = self.cross_attn3(ds1_s3, ds2_s3) + self.cross_attn3(ds1_s3, ds3_s3) + self.cross_attn3(ds2_s3, ds3_s3)'''
 
         if weighting_mode is not None and dataset_ids is not None:
             weights = self.compute_dataset_specific_weights(dataset_ids, weighting_mode, 3)
