@@ -4,10 +4,10 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import albumentations as A
-from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
+from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, compute_dataset_specific_weights, log_results_test, log_results_train_val
 from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler
 from metrics import DiceBCELoss, update_metrics, compute_final_results
-from models import TResUnet, TResUnetFusedModel
+from models_tresunet import TResUnet
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -20,8 +20,7 @@ HYPERPARAMETERS = {
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
-    # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert and None if no weighted mode wanted
-    'dsm_weighting_mode': 2,
+    'dsm_weight_mode': 2, # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert
 }
 
 # Dictionary that maps dataset names to an id
@@ -38,11 +37,8 @@ DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for
 DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
-# Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
-
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/fused_not_weighted'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/biased/without_fused_model'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
@@ -51,37 +47,29 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_cross_dataset.txt'
 RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_last_resume.pth'
 
 
-# Feature Aligner: Projects generic model features into the dimensions of fused dataset-specific models features
-'''class FeatureAligner(nn.Module):
-    def __init__(self, generic_dims, fused_dims):
-        super().__init__()
-        self.projections = nn.ModuleList([
-            nn.Conv2d(fused_dim, generic_dim, kernel_size=1) for generic_dim, fused_dim in zip(generic_dims, fused_dims)
-        ])
+# Function that computes the feature alignment loss by calculating the MSE loss 
+def compute_feature_alignment_loss(cross_dataset_features, dataset_specific_features, weights):
+    feature_alignment_loss = 0.0
 
-    def forward(self, fused_features):
-        return [proj(fused_feature) for proj, fused_feature in zip(self.projections, fused_features)]'''
+    for encoder_block_index in range(len(cross_dataset_features)):
+        cross_dataset_feature = cross_dataset_features[encoder_block_index]
+        weighted_target = torch.zeros_like(cross_dataset_feature)
 
-# Feature alignment loss
-def compute_feature_alignment_loss(generic_features, fused_features):
-    '''for generic_feature in generic_features:
-        print(generic_feature.shape)
-    for fused_feature in fused_features:
-        print(fused_feature.shape)'''
-
-    '''aligners = [
-        nn.Conv2d(fused_features[i].size(1), generic_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
-        for i in range(len(generic_features))
-    ]
-    aligned_fused_features = [aligners[i](fused_features[i]) for i in range(len(fused_features))]'''
-
-    return sum(F.mse_loss(generic_feature, fused_feature) for generic_feature, fused_feature in zip(generic_features, fused_features)) / len(fused_features)
+        for dataset_id in range(len(dataset_specific_features)):
+            dataset_specific_feature = dataset_specific_features[dataset_id][encoder_block_index]
+            #mse_difference_per_sample = F.mse_loss(cross_dataset_feature, dataset_specific_feature, reduction='none').mean(dim=(1, 2, 3))
+            #feature_alignment_loss += (param_weights[:, dataset_id] * mse_difference_per_sample).mean()
+            dataset_weights = weights[:, dataset_id].view(-1, 1, 1, 1)
+            weighted_target += dataset_weights * dataset_specific_feature
+        
+        feature_alignment_loss += F.mse_loss(cross_dataset_feature, weighted_target)
+    
+    return feature_alignment_loss #/ len(cross_dataset_features)
 
 
 # Training uses both segmentation loss and feature alignment loss
-def train_step(model, dataloader, optimizer, criterion, fused_model, weighting_mode, device):
+def train_step(model, dataloader, optimizer, criterion, dataset_specific_models, weighting_mode, device):
     model.train()
-    fused_model.eval()
     
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
@@ -93,17 +81,41 @@ def train_step(model, dataloader, optimizer, criterion, fused_model, weighting_m
         batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
 
         optimizer.zero_grad()
-
-        # Pass the batch through the fused dataset-specific models
-        with torch.no_grad():
-            _, fused_features = fused_model(batched_images, dataset_ids=batched_dataset_ids, weighting_mode=weighting_mode, return_features=True)
-
         y_pred, cross_dataset_features = model(batched_images, return_features=True)
         segmentation_loss = criterion(y_pred, batched_masks)
-        feature_alignment_loss = compute_feature_alignment_loss(cross_dataset_features, fused_features)
 
+        # Pass the batch to each dataset specific model and collect the feature maps
+        with torch.no_grad():
+            num_dataset_specific_models = len(dataset_specific_models)
+
+            # In one-hot mode, non-matching experts remain zero because their sample weights are zero
+            if weighting_mode == 0:
+                dataset_specific_features_by_dataset_id = [[torch.zeros_like(feature) for feature in cross_dataset_features] for _ in range(num_dataset_specific_models)]
+                
+                for dataset_id, dataset_specific_model in dataset_specific_models.items():
+                    samples_from_dataset = (batched_dataset_ids == dataset_id).nonzero(as_tuple=True)[0]
+
+                    if samples_from_dataset.numel() == 0:
+                        continue
+
+                    selected_images = batched_images[samples_from_dataset]
+                    dataset_specific_features = dataset_specific_model.encode(selected_images)
+
+                    for encoder_block_index in range(len(cross_dataset_features)):
+                        dataset_specific_features_by_dataset_id[dataset_id][encoder_block_index][samples_from_dataset] = dataset_specific_features[encoder_block_index]
+            else:
+                dataset_specific_features_by_dataset_id = [None] * num_dataset_specific_models
+                
+                for dataset_id, dataset_specific_model in dataset_specific_models.items():
+                    dataset_specific_features_by_dataset_id[dataset_id] = dataset_specific_model.encode(batched_images)
+                
+            dataset_specific_models_weights = compute_dataset_specific_weights(batched_dataset_ids, weighting_mode, num_dataset_specific_models)
+
+        feature_alignment_loss = compute_feature_alignment_loss(cross_dataset_features, dataset_specific_features_by_dataset_id, dataset_specific_models_weights)
+        
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
         total_loss = segmentation_loss + feature_alignment_loss
+        #print(f'Batch Loss: {total_loss.item():.4f} (Segmentation Loss: {segmentation_loss.item():.4f}, Feature Alignment Loss: {feature_alignment_loss.item():.4f})')
         total_loss.backward()
         optimizer.step()
 
@@ -112,9 +124,8 @@ def train_step(model, dataloader, optimizer, criterion, fused_model, weighting_m
 
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
-    
-    return compute_final_results(epoch_loss, results, processed_samples)
 
+    return compute_final_results(epoch_loss, results, processed_samples)
 
 # Validation monitors segmentation performance only, without feature alignment loss
 def evaluate_step(model, dataloader, criterion, device):
@@ -137,7 +148,7 @@ def evaluate_step(model, dataloader, criterion, device):
 
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
-
+            
     return compute_final_results(epoch_loss, results, processed_samples)
 
 
@@ -164,7 +175,7 @@ if __name__ == '__main__':
     # Create datasets for training and validation
     train_dataset = SegmentationDatasetWithDatasetId(train_images_paths, train_masks_paths, train_dataset_ids, HYPERPARAMETERS['image_size'], transform=augmentation)
     validation_dataset = SegmentationDatasetWithDatasetId(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
-
+    
     # Create balanced batch samplers for training and validation
     train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=True, allow_incomplete_last_batch=True)
     validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=False, allow_incomplete_last_batch=True)
@@ -176,15 +187,6 @@ if __name__ == '__main__':
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
-    fused_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
-    fused_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False)
-    '''incompatible = fused_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False )
-    print(incompatible.missing_keys)
-    print(incompatible.unexpected_keys)'''
-    fused_model = freeze_model_parameters(fused_model)
-        
-    # Feature aligner
-    #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
 
     # Create model, optimizer, scheduler, and criterion
     model = TResUnet().to(DEVICE)
@@ -207,7 +209,7 @@ if __name__ == '__main__':
         train_sampler.set_epoch(epoch)
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, fused_model, HYPERPARAMETERS['dsm_weighting_mode'], DEVICE)
+        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, dataset_specific_models, HYPERPARAMETERS['dsm_weight_mode'], DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 

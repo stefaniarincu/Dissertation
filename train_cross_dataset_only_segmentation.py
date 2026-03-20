@@ -3,10 +3,10 @@ import time
 import torch
 from torch.utils.data import DataLoader
 import albumentations as A
-from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, create_optimizer, log_results_train_val, log_results_test
+from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, log_results_train_val, log_results_test
 from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler
 from metrics import DiceBCELoss, update_metrics, compute_final_results
-from models import TResUnet, TResUnetFusedModel
+from models_tresunet import TResUnet
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -18,9 +18,7 @@ HYPERPARAMETERS = {
     'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 20,
-    # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biasd towards own dataset expert and None if no weighted mode wanted
-    'dsm_weighting_mode': None,
+    'early_stopping_patience': 20
 }
 
 # Dictionary that maps dataset names to an id
@@ -33,35 +31,30 @@ ROOT_PATH = '/root/Disertation'
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
-# Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
-DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
-
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted_cross_attention'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/cross_dataset/only_segmentation'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
-CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_model.pth'
-TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_fused.txt'
-TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_fused.txt'
+CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_model.pth'
+TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_cross_dataset.txt'
+TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_cross_dataset.txt'
 # Constant for resume checkpoint path if the training stops for whatever reason
-RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_model_last_resume.pth'
+RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_last_resume.pth'
 
 
-def train_step(model, dataloader, optimizer, criterion, weighting_mode, device):
+def train_step(model, dataloader, optimizer, criterion, device):
     model.train()
     
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
     processed_samples = 0
 
-    for batched_images, batched_masks, batched_dataset_ids in dataloader:
+    for batched_images, batched_masks, _ in dataloader:
         batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
         batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
-        batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
 
         optimizer.zero_grad()
 
-        y_pred = model(batched_images, dataset_ids=batched_dataset_ids, weighting_mode=weighting_mode)
+        y_pred = model(batched_images)
         loss = criterion(y_pred, batched_masks)
 
         loss.backward()
@@ -69,10 +62,10 @@ def train_step(model, dataloader, optimizer, criterion, weighting_mode, device):
 
         epoch_loss += loss.item() * batched_images.size(0)
         processed_samples += batched_images.size(0)
-        
+
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
-    
+
     return compute_final_results(epoch_loss, results, processed_samples)
 
 
@@ -87,17 +80,16 @@ def evaluate_step(model, dataloader, criterion, device):
         for batched_images, batched_masks, _ in dataloader:
             batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
-            #batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
 
             y_pred = model(batched_images)
             loss = criterion(y_pred, batched_masks)
-            
+
             epoch_loss += loss.item() * batched_images.size(0)
             processed_samples += batched_images.size(0)
 
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
-    
+
     return compute_final_results(epoch_loss, results, processed_samples)
 
 
@@ -133,13 +125,9 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
 
-    # Load dataset specific models checkpoints for each dataset
-    dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
-    dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
-
-    # Create model, optimizer, scheduler, and criterion
-    model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
-    optimizer = create_optimizer(model, HYPERPARAMETERS['init_learning_rate'])
+    # Create model, optimizer, scheduler and criterion
+    model = TResUnet().to(DEVICE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
 
@@ -158,7 +146,7 @@ if __name__ == '__main__':
         train_sampler.set_epoch(epoch)
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, HYPERPARAMETERS['dsm_weighting_mode'], DEVICE)
+        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 
@@ -179,7 +167,7 @@ if __name__ == '__main__':
 
         # If early stopping is triggered, break the training loop
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
+            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.\n')
             break
 
         save_resume_checkpoint(model, epoch, optimizer, scheduler, best_validation_metric, num_epochs_no_improvement, RESUME_CHECKPOINT_PATH)

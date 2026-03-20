@@ -7,7 +7,7 @@ import albumentations as A
 from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
-from models import TResUnet, TResUnetFusedModel
+from models_tresunet import TResUnet, TResUnetFusedModel
 
 SEED = 42
 DEVICE = torch.device('cuda')

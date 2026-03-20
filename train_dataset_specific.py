@@ -2,12 +2,12 @@ import os
 import time
 import torch
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 import albumentations as A
-from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
+from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, log_results_train_val, log_results_test
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
-from models import TResUnet, TResUnetFusedModel
+from models_tresunet import TResUnet
+from model_unet import UNet
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -16,68 +16,29 @@ DEVICE = torch.device('cuda')
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
-    'num_epochs': 150,
+    'num_epochs': 300,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20
 }
 
-# Dictionary that maps dataset names to an id
-IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
-
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'bmshare', 'brats'
+DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
-# Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
-DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
-
-# Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
-
-# Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout/{DATASET_NAME}'
+# Constant for model checkpoint path and log path
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/unet/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
-CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
+CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
 
-# Feature Aligner: Projects generic model features into the dimensions of fused dataset-specific models features
-'''class FeatureAligner(nn.Module):
-    def __init__(self, student_dims, teacher_dims):
-        super().__init__()
-        self.projections = nn.ModuleList([
-            nn.Conv2d(teacher_dim, student_dim, kernel_size=1) for student_dim, teacher_dim in zip(student_dims, teacher_dims)
-        ])
-
-    def forward(self, teacher_features):
-        return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]'''
-
-# Feature alignment loss
-def compute_feature_alignment_loss(student_features, teacher_features):
-    '''for student_feature in student_features:
-        print(student_feature.shape)
-    for teacher_feature in teacher_features:
-        print(teacher_feature.shape)'''
-
-    '''aligners = [
-        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
-        for i in range(len(student_features))
-    ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
-
-    return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
-
-
-# Function that computes the feature alignment loss by calculating the MSE loss 
-def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
+def train_step(model, dataloader, optimizer, criterion, device):
     model.train()
-    teacher_model.eval()
     
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
@@ -88,21 +49,13 @@ def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
 
         optimizer.zero_grad()
 
-        # Pass the batch through the teacher model
-        with torch.no_grad():
-            _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
-        
-        y_pred, student_features = model(batched_images, return_features=True)
-        segmentation_loss = criterion(y_pred, batched_masks)
-        feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
+        y_pred = model(batched_images)
+        loss = criterion(y_pred, batched_masks)
 
-        # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
-        total_loss = segmentation_loss + feature_alignment_loss
-        #print(f'Segmentation Loss: {segmentation_loss.item():.4f}, Feature Alignment Loss: {feature_alignment_loss.item():.4f}, Total Loss: {total_loss.item():.4f}')
-        total_loss.backward()
+        loss.backward()
         optimizer.step()
 
-        epoch_loss += total_loss.item() * batched_images.size(0)
+        epoch_loss += loss.item() * batched_images.size(0)
 
         for yt, yp in zip(batched_masks, y_pred):
             update_metrics(results, yt, yp)
@@ -110,7 +63,6 @@ def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
     return compute_final_results(epoch_loss, results, len(dataloader.dataset))
 
 
-# Validation monitors segmentation performance only, without feature alignment loss
 def evaluate_step(model, dataloader, criterion, device):
     model.eval()
 
@@ -123,9 +75,9 @@ def evaluate_step(model, dataloader, criterion, device):
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
             y_pred = model(batched_images)
-            segmentation_loss = criterion(y_pred, batched_masks)
+            loss = criterion(y_pred, batched_masks)
 
-            epoch_loss += segmentation_loss.item() * batched_images.size(0)
+            epoch_loss += loss.item() * batched_images.size(0)
 
             for yt, yp in zip(batched_masks, y_pred):
                 update_metrics(results, yt, yp)
@@ -150,34 +102,20 @@ if __name__ == '__main__':
         A.Rotate(limit=35, p=0.3),
         A.HorizontalFlip(p=0.3),
         A.VerticalFlip(p=0.3),
-        #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
+        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
     ])
 
     # Create datasets for training and validation
     train_dataset = SegmentationDataset(train_images_paths, train_masks_paths, HYPERPARAMETERS['image_size'], transform=augmentation)
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
-
+    
     # Create dataloaders for training and validation datasets
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
-    # Load dataset specific models checkpoints for each dataset
-    dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
-    dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
-
-    # Load the fused model checkpoint and create the teacher model for knowledge distillation    
-    teacher_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
-    teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
-    '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False )
-    print(incompatible.missing_keys)
-    print(incompatible.unexpected_keys)'''
-    teacher_model = freeze_model_parameters(teacher_model)
-
-    # Feature aligner
-    #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
-
-    # Create model, optimizer, scheduler, and criterion
-    model = TResUnet().to(DEVICE)
+    # Create model, optimizer, scheduler and criterion
+    #model = TResUnet().to(DEVICE)
+    model = UNet(3, 1, True).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
@@ -190,7 +128,7 @@ if __name__ == '__main__':
         start_time = time.time()
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_model, DEVICE)
+        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 
@@ -208,7 +146,7 @@ if __name__ == '__main__':
         # Write the epoch results to the log file
         end_time = time.time()
         log_results_train_val(TRAIN_LOG_PATH, epoch, train_loss, train_metrics, validation_loss, validation_metrics, start_time, end_time)
-        
+
         # If early stopping is triggered, break the training loop
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
             print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
@@ -216,18 +154,17 @@ if __name__ == '__main__':
 
     # Create the test log file
     create_log_file(TEST_LOG_PATH)
-    # Load best model and check its performance
-    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
 
-    # Load the images and masks file names for the test split
+    # Load test data
     test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
     dataset_log_text = f'Test set size: {len(test_images_paths)}\n'
     print_and_save(TEST_LOG_PATH, dataset_log_text)
-
+    
     # Create dataset and dataloader for the test set of the current dataset
     test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
-
-    # Test the model
+    
+    # Load best model and check its performance
+    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
     test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
     log_results_test(TEST_LOG_PATH, test_loss, test_metrics)
