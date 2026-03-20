@@ -36,7 +36,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
+DATASET_NAME = 'brats' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
@@ -109,7 +109,7 @@ def cosine_similarity_loss(student_features, teacher_features):
     return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, teacher_features)) / len(student_features)
 
 # Dynamic curriculum for scheduling KD losses
-def dynamic_curriculum(epoch, max_epoch, warmup_epochs=5, ramp_epochs=10):
+def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
     if epoch < warmup_epochs:
         return 0.0  # No KD in warmup
     elif epoch < warmup_epochs + ramp_epochs:
@@ -247,7 +247,7 @@ if __name__ == '__main__':
         contrastive_weight = min(HYPERPARAMETERS['max_contrastive_weight'], HYPERPARAMETERS['initial_contrastive_weight'] + epoch * HYPERPARAMETERS['weight_increment'])
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_model, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
+        train_loss, train_metrics = train_step(teacher_model, model, train_dataloader, optimizer, criterion, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         #scheduler.step(validation_loss)
         scheduler.step()
