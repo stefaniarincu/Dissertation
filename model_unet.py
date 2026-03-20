@@ -111,7 +111,7 @@ class UNet(nn.Module):
 
         return s2, s3, s4
 
-    def forward(self, x):
+    def forward(self, x, return_features=False):
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
@@ -122,4 +122,7 @@ class UNet(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         logits = self.outc(x)
+
+        if return_features:
+            return logits, [x2, x3, x4]
         return logits

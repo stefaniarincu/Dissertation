@@ -3,11 +3,13 @@ import time
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from torch import nn
 import albumentations as A
 from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet, TResUnetFusedModel
+from model_unet import UNet
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -16,7 +18,7 @@ DEVICE = torch.device('cuda')
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
-    'num_epochs': 100,
+    'num_epochs': 150,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
@@ -47,7 +49,7 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout_compound_loss_cos_sched/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout_compound_loss/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -55,7 +57,7 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
 
 # Feature Aligner: Projects generic model features into the dimensions of fused dataset-specific models features
-'''class FeatureAligner(nn.Module):
+class FeatureAligner(nn.Module):
     def __init__(self, student_dims, teacher_dims):
         super().__init__()
         self.projections = nn.ModuleList([
@@ -63,7 +65,7 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
         ])
 
     def forward(self, teacher_features):
-        return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]'''
+        return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]
 
 # Flatten features for contrastive loss
 def flatten_features(features):
@@ -83,33 +85,22 @@ def contrastive_loss(student_features, teacher_features, temperature=0.5):
     return F.kl_div(similarity_student.log(), similarity_teacher, reduction='batchmean')
 
 # Feature alignment loss
-def compute_feature_alignment_loss(student_features, teacher_features):
+def compute_feature_alignment_loss(student_features, teacher_features, aligner):
     '''for student_feature in student_features:
         print(student_feature.shape)
     for teacher_feature in teacher_features:
         print(teacher_feature.shape)'''
 
-    '''aligners = [
-        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
-        for i in range(len(student_features))
-    ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
-
-    return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
+    aligned_teacher_features = aligner(teacher_features)
+    return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, aligned_teacher_features)) / len(student_features)
 
 # Cosine similarity loss
-def cosine_similarity_loss(student_features, teacher_features):
-    '''aligners = [
-        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(
-            device)
-        for i in range(len(student_features))
-    ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
-
-    return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, teacher_features)) / len(student_features)
+def cosine_similarity_loss(student_features, teacher_features, aligner):
+    aligned_teacher_features = aligner(teacher_features)
+    return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, aligned_teacher_features)) / len(student_features)
 
 # Dynamic curriculum for scheduling KD losses
-def dynamic_curriculum(epoch, max_epoch, warmup_epochs=5, ramp_epochs=10):
+def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
     if epoch < warmup_epochs:
         return 0.0  # No KD in warmup
     elif epoch < warmup_epochs + ramp_epochs:
@@ -119,10 +110,11 @@ def dynamic_curriculum(epoch, max_epoch, warmup_epochs=5, ramp_epochs=10):
 
 
 # Function that computes the feature alignment loss by calculating the MSE, cosine and constrastive losses
-def train_step(teacher_model, student_model, dataloader, optimizer, criterion, device, 
+def train_step(teacher_model, student_model, dataloader, optimizer, criterion, aligner, device, 
                epoch, alpha=0.5, temperature=2.0, contrastive_weight=0.5, map_loss_weight=0.3):
     teacher_model.eval()
     student_model.train()
+    aligner.train()
     
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
@@ -137,13 +129,14 @@ def train_step(teacher_model, student_model, dataloader, optimizer, criterion, d
 
         # Pass the batch through the teacher model
         with torch.no_grad():
-            _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
+            _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=False, return_features_unet=True)
         
         student_output, student_features = student_model(batched_images, return_features=True)
         segmentation_loss = criterion(student_output, batched_masks)
+        
         kd_contrastive_loss = contrastive_loss(student_features, teacher_features, temperature=temperature)
-        feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
-        similarity_loss = cosine_similarity_loss(student_features, teacher_features)
+        feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features, aligner)
+        similarity_loss = cosine_similarity_loss(student_features, teacher_features, aligner)
 
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
         total_loss = (alpha * segmentation_loss +
@@ -226,11 +219,11 @@ if __name__ == '__main__':
     teacher_model = freeze_model_parameters(teacher_model)
 
     # Feature aligner
-    #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
+    aligner = FeatureAligner([128, 256, 512], [192, 768, 1536]).to(DEVICE)
 
     # Create model, optimizer, scheduler, and criterion
-    model = TResUnet().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
+    student_model = UNet(3, 1, True).to(DEVICE)
+    optimizer = torch.optim.Adam(list(student_model.parameters()) + list(aligner.parameters()), lr=HYPERPARAMETERS['init_learning_rate'])
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'])
     criterion = DiceBCELoss()
@@ -247,8 +240,8 @@ if __name__ == '__main__':
         contrastive_weight = min(HYPERPARAMETERS['max_contrastive_weight'], HYPERPARAMETERS['initial_contrastive_weight'] + epoch * HYPERPARAMETERS['weight_increment'])
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_model, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
-        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
+        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, criterion, aligner, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
+        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, criterion, DEVICE)
         #scheduler.step(validation_loss)
         scheduler.step()
 
@@ -258,7 +251,7 @@ if __name__ == '__main__':
             print_and_save(TRAIN_LOG_PATH, data_str)
 
             best_validation_metric = validation_metrics[1]
-            torch.save(model.state_dict(), CHECKPOINT_PATH)
+            torch.save({'student_model': student_model.state_dict(), 'aligner': aligner.state_dict()}, CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
         else:
             num_epochs_no_improvement += 1
@@ -275,7 +268,9 @@ if __name__ == '__main__':
     # Create the test log file
     create_log_file(TEST_LOG_PATH)
     # Load best model and check its performance
-    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
+    checkpoint = torch.load(CHECKPOINT_PATH, map_location=DEVICE)
+    student_model.load_state_dict(checkpoint['student_model'])
+    aligner.load_state_dict(checkpoint['aligner'])
 
     # Load the images and masks file names for the test split
     test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
@@ -287,5 +282,5 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
 
     # Test the model
-    test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
+    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, criterion, DEVICE)
     log_results_test(TEST_LOG_PATH, test_loss, test_metrics)

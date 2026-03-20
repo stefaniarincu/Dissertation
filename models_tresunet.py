@@ -539,7 +539,7 @@ class TResUnetFusedModel(nn.Module):
             weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
             return weights.scatter_(1, dataset_ids.view(-1, 1), 0.5)
 
-    def forward(self, x, dataset_ids=None, weighting_mode=None, return_features=False):
+    def forward(self, x, dataset_ids=None, weighting_mode=None, return_features=False, return_features_unet=False):
         with torch.no_grad():
             # Encode features from each dataset specific model
             [ds1_s1, ds1_s2, ds1_s3, ds1_b] = self.dataset_specific_1.encode(x)
@@ -589,4 +589,6 @@ class TResUnetFusedModel(nn.Module):
 
         if return_features:
             return y, [conv_s1, conv_s2, conv_s3, conv_bottleneck]
+        if return_features_unet:
+            return y, [combined_s1, combined_s2, combined_s3]
         return y
