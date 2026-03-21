@@ -53,7 +53,7 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_cross_dataset.txt'
 RESUME_CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/cross_dataset_last_resume.pth'
 
 
-# Function that computes the contrastive loss
+# Function that computes the contrastive loss by calculating the KL divergence between the similarity matrices
 def contrastive_loss(cross_dataset_features, dataset_specific_features, weights, temperature=0.5):
     kd_contrastive_loss = 0.0
 
@@ -108,7 +108,7 @@ def compute_feature_alignment_loss(cross_dataset_features, dataset_specific_feat
            
     return feature_alignment_loss #/ (len(cross_dataset_features) * len(dataset_specific_features))
 
-# Dynamic curriculum for scheduling KD losses
+# Function for dynamic curriculum for scheduling KD losses
 def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
     if epoch < warmup_epochs:
         return 0.0  # No KD in warmup
@@ -117,7 +117,7 @@ def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
     else:
         return 1.0  # Full KD after ramp-up
 
-# Training uses both segmentation loss and feature alignment loss
+# Training uses both segmentation loss and feature alignment loss (mse, cosine similarity and contrastive loss), with dynamic curriculum scheduling for KD
 def train_step(model, dataloader, optimizer, criterion, dataset_specific_models, weighting_mode, device,
                epoch, alpha=0.5, temperature=2.0, contrastive_weight=0.5, map_loss_weight=0.3):
     model.train()

@@ -36,7 +36,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'brats' # 'bmshare', 'brats'
+DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
@@ -44,10 +44,10 @@ DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted_cross_attention/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout_compound_loss_cos_sched/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_cross_attn_without_dropout_compound_loss_cos_sched/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -65,12 +65,12 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
     def forward(self, teacher_features):
         return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]'''
 
-# Flatten features for contrastive loss
+# Function that flattens features for contrastive loss
 def flatten_features(features):
     flat_features = [f.view(f.size(0), -1) for f in features]
     return torch.cat(flat_features, dim=1)
 
-# Contrastive loss
+# Function that computes the contrastive loss by calculating the KL divergence between the similarity matrices
 def contrastive_loss(student_features, teacher_features, temperature=0.5):
     student_features_concat = F.normalize(flatten_features(student_features), p=2, dim=1)
     teacher_features_concat = F.normalize(flatten_features(teacher_features), p=2, dim=1)
@@ -82,7 +82,7 @@ def contrastive_loss(student_features, teacher_features, temperature=0.5):
     similarity_teacher = F.softmax(similarity_matrix_teacher / temperature, dim=1)
     return F.kl_div(similarity_student.log(), similarity_teacher, reduction='batchmean')
 
-# Feature alignment loss
+# Function that computes the feature alignment loss by calculating the MSE between the student and teacher features
 def compute_feature_alignment_loss(student_features, teacher_features):
     '''for student_feature in student_features:
         print(student_feature.shape)
@@ -97,7 +97,7 @@ def compute_feature_alignment_loss(student_features, teacher_features):
 
     return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
 
-# Cosine similarity loss
+# Function that computes the cosine similarity between the student and teacher features
 def cosine_similarity_loss(student_features, teacher_features):
     '''aligners = [
         nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(
@@ -108,7 +108,7 @@ def cosine_similarity_loss(student_features, teacher_features):
 
     return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, teacher_features)) / len(student_features)
 
-# Dynamic curriculum for scheduling KD losses
+# Function for dynamic curriculum for scheduling KD losses
 def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
     if epoch < warmup_epochs:
         return 0.0  # No KD in warmup
@@ -118,7 +118,7 @@ def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
         return 1.0  # Full KD after ramp-up
 
 
-# Function that computes the feature alignment loss by calculating the MSE, cosine and constrastive losses
+# Training uses both segmentation loss and feature alignment loss (mse, cosine similarity and contrastive loss), with dynamic curriculum scheduling for KD
 def train_step(teacher_model, student_model, dataloader, optimizer, criterion, device, 
                epoch, alpha=0.5, temperature=2.0, contrastive_weight=0.5, map_loss_weight=0.3):
     teacher_model.eval()
@@ -219,7 +219,7 @@ if __name__ == '__main__':
 
     # Load the fused model checkpoint and create the teacher model for knowledge distillation    
     teacher_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
-    teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False)
+    teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
     '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False )
     print(incompatible.missing_keys)
     print(incompatible.unexpected_keys)'''

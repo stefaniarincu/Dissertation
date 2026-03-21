@@ -58,7 +58,7 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
     def forward(self, teacher_features):
         return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]'''
 
-# Feature alignment loss
+# Function that computes the feature alignment loss by calculating the MSE between the student and teacher features
 def compute_feature_alignment_loss(student_features, teacher_features):
     '''for student_feature in student_features:
         print(student_feature.shape)
@@ -74,7 +74,7 @@ def compute_feature_alignment_loss(student_features, teacher_features):
     return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
 
 
-# Function that computes the feature alignment loss by calculating the MSE loss 
+# Training uses both segmentation loss and feature alignment loss (mse)
 def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
     model.train()
     teacher_model.eval()

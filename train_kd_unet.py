@@ -18,7 +18,7 @@ DEVICE = torch.device('cuda')
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
-    'num_epochs': 150,
+    'num_epochs': 100,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
@@ -49,7 +49,7 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout_compound_loss/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout_compound_loss/unet/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -67,12 +67,12 @@ class FeatureAligner(nn.Module):
     def forward(self, teacher_features):
         return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]
 
-# Flatten features for contrastive loss
+# Function that flattens features for contrastive loss
 def flatten_features(features):
     flat_features = [f.view(f.size(0), -1) for f in features]
     return torch.cat(flat_features, dim=1)
 
-# Contrastive loss
+# Function that computes the contrastive loss by calculating the KL divergence between the similarity matrices
 def contrastive_loss(student_features, teacher_features, temperature=0.5):
     student_features_concat = F.normalize(flatten_features(student_features), p=2, dim=1)
     teacher_features_concat = F.normalize(flatten_features(teacher_features), p=2, dim=1)
@@ -84,7 +84,7 @@ def contrastive_loss(student_features, teacher_features, temperature=0.5):
     similarity_teacher = F.softmax(similarity_matrix_teacher / temperature, dim=1)
     return F.kl_div(similarity_student.log(), similarity_teacher, reduction='batchmean')
 
-# Feature alignment loss
+# Function that computes the feature alignment loss by calculating the MSE between the student and teacher features
 def compute_feature_alignment_loss(student_features, teacher_features, aligner):
     '''for student_feature in student_features:
         print(student_feature.shape)
@@ -94,12 +94,12 @@ def compute_feature_alignment_loss(student_features, teacher_features, aligner):
     aligned_teacher_features = aligner(teacher_features)
     return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, aligned_teacher_features)) / len(student_features)
 
-# Cosine similarity loss
+# Function that computes the cosine similarity between the student and teacher features
 def cosine_similarity_loss(student_features, teacher_features, aligner):
     aligned_teacher_features = aligner(teacher_features)
     return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, aligned_teacher_features)) / len(student_features)
 
-# Dynamic curriculum for scheduling KD losses
+# Function for dynamic curriculum for scheduling KD losses
 def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
     if epoch < warmup_epochs:
         return 0.0  # No KD in warmup
@@ -109,7 +109,7 @@ def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
         return 1.0  # Full KD after ramp-up
 
 
-# Function that computes the feature alignment loss by calculating the MSE, cosine and constrastive losses
+# Training uses both segmentation loss and feature alignment loss (mse, cosine similarity and contrastive loss), with dynamic curriculum scheduling for KD
 def train_step(teacher_model, student_model, dataloader, optimizer, criterion, aligner, device, 
                epoch, alpha=0.5, temperature=2.0, contrastive_weight=0.5, map_loss_weight=0.3):
     teacher_model.eval()
@@ -212,7 +212,7 @@ if __name__ == '__main__':
 
     # Load the fused model checkpoint and create the teacher model for knowledge distillation    
     teacher_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
-    teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE), strict=False)
+    teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
     '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False )
     print(incompatible.missing_keys)
     print(incompatible.unexpected_keys)'''

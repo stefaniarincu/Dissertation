@@ -143,7 +143,7 @@ def load_dataset_specific_models(checkpoint_paths_by_dataset_id, models_by_datas
     for dataset_id, checkpoint_path in checkpoint_paths_by_dataset_id.items():
         models_by_dataset_id[dataset_id].load_state_dict(torch.load(checkpoint_path, map_location=device))
 
-        models_by_dataset_id[dataset_id] = freeze_model_parameters(models_by_dataset_id[dataset_id])   
+        models_by_dataset_id[dataset_id] = freeze_model_parameters(models_by_dataset_id[dataset_id])
         
     return models_by_dataset_id
 
