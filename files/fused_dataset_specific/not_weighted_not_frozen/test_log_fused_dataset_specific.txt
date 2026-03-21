@@ -1,0 +1,20 @@
+
+2026-03-18 16:42:06.453907
+isles dataset
+Test set size: 1569
+
+Test Loss: 0.3459 - Jaccard: 0.8001 - Dice (F1): 0.8345 - Recall: 0.8481 - Precision: 0.9379
+
+
+bmshare dataset
+Test set size: 1895
+
+Test Loss: 0.3935 - Jaccard: 0.8264 - Dice (F1): 0.8492 - Recall: 0.8703 - Precision: 0.9318
+
+
+brats dataset
+Test set size: 5735
+
+Test Loss: 0.2907 - Jaccard: 0.8299 - Dice (F1): 0.8634 - Recall: 0.9120 - Precision: 0.9085
+
+
