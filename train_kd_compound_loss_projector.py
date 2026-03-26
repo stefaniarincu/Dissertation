@@ -1,6 +1,7 @@
 import os
 import time
 import torch
+from torch import nn
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import albumentations as A
@@ -37,7 +38,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
+DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
@@ -48,7 +49,7 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_no_cross_attention_10K_samples/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_no_cross_attention_10K_samples_projector/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -84,28 +85,28 @@ def contrastive_loss(student_features, teacher_features, temperature=0.5):
     return F.kl_div(similarity_student.log(), similarity_teacher, reduction='batchmean')
 
 # Function that computes the feature alignment loss by calculating the MSE between the student and teacher features
-def compute_feature_alignment_loss(student_features, teacher_features):
+def compute_feature_alignment_loss(student_features, teacher_features, device):
     '''for student_feature in student_features:
         print(student_feature.shape)
     for teacher_feature in teacher_features:
         print(teacher_feature.shape)'''
 
-    '''aligners = [
+    aligners = [
         nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
         for i in range(len(student_features))
     ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
+    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]
 
     return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
 
 # Function that computes the cosine similarity between the student and teacher features
-def cosine_similarity_loss(student_features, teacher_features):
-    '''aligners = [
+def cosine_similarity_loss(student_features, teacher_features, device):
+    aligners = [
         nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(
             device)
         for i in range(len(student_features))
     ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
+    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]
 
     return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, teacher_features)) / len(student_features)
 
@@ -143,8 +144,8 @@ def train_step(teacher_model, student_model, dataloader, optimizer, criterion, d
         student_output, student_features = student_model(batched_images, return_features=True)
         segmentation_loss = criterion(student_output, batched_masks)
         kd_contrastive_loss = contrastive_loss(student_features, teacher_features, temperature=temperature)
-        feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
-        similarity_loss = cosine_similarity_loss(student_features, teacher_features)
+        feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features, device)
+        similarity_loss = cosine_similarity_loss(student_features, teacher_features, device)
 
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
         total_loss = (alpha * segmentation_loss +

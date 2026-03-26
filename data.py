@@ -30,7 +30,11 @@ def load_split_data_all_datasets(datasets_paths, split_filename):
         masks_by_dataset_id[dataset_id] = masks_paths
 
     # Keep the same number of samples for each dataset by limiting to the size of the smallest dataset
-    min_size = min(len(images_by_dataset_id[dataset_id]) for dataset_id in images_by_dataset_id.keys())
+    #min_size = min(len(images_by_dataset_id[dataset_id]) for dataset_id in images_by_dataset_id.keys())
+    if split_filename == 'train.txt':
+        min_size = 10000
+    else:
+        min_size = 1300
     all_images, all_masks, all_dataset_ids = [], [], []
     for dataset_id in images_by_dataset_id.keys():
         all_images.extend(images_by_dataset_id[dataset_id][:min_size])
