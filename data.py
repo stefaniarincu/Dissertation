@@ -60,6 +60,20 @@ def shuffle_data(data, random_state):
 
 ''' ============================================ DATASET CLASSES ============================================ '''
 
+def pad_black_to_256(image, mask):
+    width, height = image.shape[1], image.shape[0]
+    pad_width, pad_height = 256 - width, 256 - height
+    
+    top = pad_height // 2
+    bottom = pad_height - top
+    
+    left = pad_width // 2
+    right = pad_width - left
+
+    padded_image = cv.copyMakeBorder(image, top, bottom, left, right, cv.BORDER_CONSTANT, value=[0, 0, 0])
+    padded_mask = cv.copyMakeBorder(mask, top, bottom, left, right, cv.BORDER_CONSTANT, value=0)
+    return padded_image, padded_mask
+
 # Base segmentation Dataset class for loading images and masks
 class BaseSegmentationDataset(Dataset):
     def __init__(self, images_paths, masks_paths, image_size, transform=None):
@@ -76,6 +90,8 @@ class BaseSegmentationDataset(Dataset):
     def load_sample(self, index):
         image = cv.imread(self.images_paths[index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_paths[index], cv.IMREAD_GRAYSCALE)
+
+        image, mask = pad_black_to_256(image, mask)
 
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)
