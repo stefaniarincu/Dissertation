@@ -491,22 +491,22 @@ class CrossAttentionBlock(nn.Module):
 class TResUnetFusedModel(nn.Module):
     def __init__(self, dataset_specific_models):
         super().__init__()
+        num_dataset_specific_models = len(dataset_specific_models)
 
-        # Load the pretrained dataset specific models and the weighting mode for combining their features
-        self.dataset_specific_1 = dataset_specific_models[0]
-        self.dataset_specific_2 = dataset_specific_models[1]
-        self.dataset_specific_3 = dataset_specific_models[2]
+        # Use ModuleList to store the dataset specific models
+        self.dataset_specific_models = nn.ModuleList(dataset_specific_models)
 
         # Cross-attention blocks for each encoder level
-        '''self.cross_attn1 = CrossAttentionBlock(64)
-        self.cross_attn2 = CrossAttentionBlock(256)
-        self.cross_attn3 = CrossAttentionBlock(512)'''
+        '''self.cross_attn_s1 = CrossAttentionBlock(64)
+        self.cross_attn_s2 = CrossAttentionBlock(256)
+        self.cross_attn_s3 = CrossAttentionBlock(512)'''
 
-        # Convolutional blocks for combined encoder outputs
-        self.conv_1 = ConvolveResidualBlock(1536)
-        self.conv_2 = ConvolveResidualBlock(1536)
-        self.conv_3 = ConvolveResidualBlock(768)
-        self.conv_4 = ConvolveResidualBlock(192)
+        # Convolutional blocks for combined encoder outputs 
+        # s1 = 64, s2 = 256, s3 = 512, bottleneck = 512 (multiply for concatenation)
+        self.conv_1 = ConvolveResidualBlock(512 * num_dataset_specific_models)
+        self.conv_2 = ConvolveResidualBlock(512 * num_dataset_specific_models)
+        self.conv_3 = ConvolveResidualBlock(256 * num_dataset_specific_models)
+        self.conv_4 = ConvolveResidualBlock(64 * num_dataset_specific_models)
 
         # Decoder blocks
         self.d1 = DecoderBlock([512, 512], 256)
@@ -520,9 +520,8 @@ class TResUnetFusedModel(nn.Module):
     def train(self, mode=True):
         super().train(mode)
         # Keep the dataset specific models in evaluation mode to prevent their weights from being updated during training
-        self.dataset_specific_1.eval()
-        self.dataset_specific_2.eval()
-        self.dataset_specific_3.eval()
+        for model in self.dataset_specific_models:
+            model.eval()
         return self
     
     @staticmethod
@@ -535,43 +534,55 @@ class TResUnetFusedModel(nn.Module):
         elif weighting_mode == 1: 
             return torch.full((dataset_ids.shape[0], num_dataset_specific_models), 1.0 / num_dataset_specific_models, device=dataset_ids.device, dtype=torch.float32)
         # biased weights = > 0.5 for the dataset specific model corresponding to the dataset and 0.25 for the others
-        elif weighting_mode == 2: 
-            weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
-            return weights.scatter_(1, dataset_ids.view(-1, 1), 0.5)
+        elif weighting_mode == 2:
+            if num_dataset_specific_models == 2:
+                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
+                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.75)
+            elif num_dataset_specific_models == 3:
+                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
+                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.5)
+            elif num_dataset_specific_models == 4:
+                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.2, device=dataset_ids.device, dtype=torch.float32)
+                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.4)
 
     def forward(self, x, dataset_ids=None, weighting_mode=None, return_features=False, return_features_unet=False):
+        num_dataset_specific_models = len(self.dataset_specific_models)
+
         with torch.no_grad():
             # Encode features from each dataset specific model
-            [ds1_s1, ds1_s2, ds1_s3, ds1_b] = self.dataset_specific_1.encode(x)
-            [ds2_s1, ds2_s2, ds2_s3, ds2_b] = self.dataset_specific_2.encode(x)
-            [ds3_s1, ds3_s2, ds3_s3, ds3_b] = self.dataset_specific_3.encode(x)
+            all_features = [model.encode(x) for model in self.dataset_specific_models]
 
         # Cross-attention on encoder outputs
-        '''ds1_s1 = self.cross_attn1(ds1_s1, ds2_s1) + self.cross_attn1(ds1_s1, ds3_s1) + self.cross_attn1(ds2_s1, ds3_s1)
-        ds1_s2 = self.cross_attn2(ds1_s2, ds2_s2) + self.cross_attn2(ds1_s2, ds3_s2) + self.cross_attn2(ds2_s2, ds3_s2)
-        ds1_s3 = self.cross_attn3(ds1_s3, ds2_s3) + self.cross_attn3(ds1_s3, ds3_s3) + self.cross_attn3(ds2_s3, ds3_s3)'''
+        '''
+        all_features = [
+            [
+                self.cross_attn_s1(all_features[i][0], [all_features[j][0] for j in range(num_dataset_specific_models) if j != i]),
+                self.cross_attn_s2(all_features[i][1], [all_features[j][1] for j in range(num_dataset_specific_models) if j != i]),
+                self.cross_attn_s3(all_features[i][2], [all_features[j][2] for j in range(num_dataset_specific_models) if j != i]),
+            ]
+            for i in range(num_dataset_specific_models)
+        ]
+        '''
 
         if weighting_mode is not None and dataset_ids is not None:
-            weights = self.compute_dataset_specific_weights(dataset_ids, weighting_mode, 3)
-            weights_1 = weights[:, 0].view(-1, 1, 1, 1)
-            weights_2 = weights[:, 1].view(-1, 1, 1, 1)
-            weights_3 = weights[:, 2].view(-1, 1, 1, 1)
+            weights = self.compute_dataset_specific_weights(dataset_ids, weighting_mode, num_dataset_specific_models)
+            weights = [weights[:, i].view(-1, 1, 1, 1) for i in range(weights.shape[1])]
 
             # Concatenate the encoder outputs with cross-attention applied
-            combined_s1 = torch.cat([weights_1 * ds1_s1, weights_2 * ds2_s1, weights_3 * ds3_s1], dim=1)
-            combined_s2 = torch.cat([weights_1 * ds1_s2, weights_2 * ds2_s2, weights_3 * ds3_s2], dim=1)
-            combined_s3 = torch.cat([weights_1 * ds1_s3, weights_2 * ds2_s3, weights_3 * ds3_s3], dim=1)
+            combined_s1 = torch.cat([weights[i] * all_features[i][0] for i in range(num_dataset_specific_models)], dim=1)
+            combined_s2 = torch.cat([weights[i] * all_features[i][1] for i in range(num_dataset_specific_models)], dim=1)
+            combined_s3 = torch.cat([weights[i] * all_features[i][2] for i in range(num_dataset_specific_models)], dim=1)
 
             # Concatenate bottleneck features from all dataset specific models
-            combined_bottleneck = torch.cat((weights_1 * ds1_b, weights_2 * ds2_b, weights_3 * ds3_b), dim=1)
+            combined_bottleneck = torch.cat([weights[i] * all_features[i][3] for i in range(num_dataset_specific_models)], dim=1)
         else:
             # Concatenate the encoder outputs with cross-attention applied
-            combined_s1 = torch.cat([ds1_s1, ds2_s1, ds3_s1], dim=1)
-            combined_s2 = torch.cat([ds1_s2, ds2_s2, ds3_s2], dim=1)
-            combined_s3 = torch.cat([ds1_s3, ds2_s3, ds3_s3], dim=1)
+            combined_s1 = torch.cat([all_features[i][0] for i in range(num_dataset_specific_models)], dim=1)
+            combined_s2 = torch.cat([all_features[i][1] for i in range(num_dataset_specific_models)], dim=1)
+            combined_s3 = torch.cat([all_features[i][2] for i in range(num_dataset_specific_models)], dim=1)
 
             # Concatenate bottleneck features from all dataset specific models
-            combined_bottleneck = torch.cat((ds1_b, ds2_b, ds3_b), dim=1)
+            combined_bottleneck = torch.cat([all_features[i][3] for i in range(num_dataset_specific_models)], dim=1)
 
         # Convolution and decoder layers
         conv_bottleneck = self.conv_1(combined_bottleneck)

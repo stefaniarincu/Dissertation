@@ -21,7 +21,7 @@ def load_split_data(dataset_path, split_filename):
     return images_paths, masks_paths
 
 # Function that loads data from all datasets
-def load_split_data_all_datasets(datasets_paths, split_filename):
+def load_split_data_all_datasets(datasets_paths, split_filename, num_train_samples_per_dataset=None, num_val_samples_per_dataset=None):
     images_by_dataset_id, masks_by_dataset_id = {}, {}
     # Collect the images and masks paths for each dataset and store them in a dictionary that maps dataset ids to the corresponding paths
     for dataset_id, dataset_path in datasets_paths.items():
@@ -29,12 +29,18 @@ def load_split_data_all_datasets(datasets_paths, split_filename):
         images_by_dataset_id[dataset_id] = images_paths
         masks_by_dataset_id[dataset_id] = masks_paths
 
-    # Keep the same number of samples for each dataset by limiting to the size of the smallest dataset
-    #min_size = min(len(images_by_dataset_id[dataset_id]) for dataset_id in images_by_dataset_id.keys())
+    # Take the number of required samples from each dataset if specified, otherwise take the minimum number of samples available across all datasets 
     if split_filename == 'train.txt':
-        min_size = 10000
+        if num_train_samples_per_dataset is not None:
+            min_size = num_train_samples_per_dataset
+        else:
+            min_size = min(len(images_by_dataset_id[dataset_id]) for dataset_id in images_by_dataset_id.keys())
     else:
-        min_size = 1300
+        if num_val_samples_per_dataset is not None:
+            min_size = num_val_samples_per_dataset
+        else:
+            min_size = min(len(images_by_dataset_id[dataset_id]) for dataset_id in images_by_dataset_id.keys())
+    
     all_images, all_masks, all_dataset_ids = [], [], []
     for dataset_id in images_by_dataset_id.keys():
         all_images.extend(images_by_dataset_id[dataset_id][:min_size])
@@ -91,7 +97,8 @@ class BaseSegmentationDataset(Dataset):
         image = cv.imread(self.images_paths[index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_paths[index], cv.IMREAD_GRAYSCALE)
 
-        image, mask = pad_black_to_256(image, mask)
+        if image.shape[0] < 256 or image.shape[1] < 256:
+            image, mask = pad_black_to_256(image, mask)
 
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)
@@ -137,6 +144,9 @@ class BalancedBatchSampler(Sampler):
         batch 2 -> 5, 6, 5 samples from dataset 1, 2, 3
         batch 3 -> 5, 5, 6 samples from dataset 1, 2, 3
         and so on
+
+    For batch_size=16 and 4 datasets:
+        all batches -> 4 samples from each dataset
     '''
     def __init__(self, dataset_ids, batch_size, seed, shuffle=True, allow_incomplete_last_batch=False):
         super().__init__()
