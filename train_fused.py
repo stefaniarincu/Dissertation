@@ -24,7 +24,7 @@ HYPERPARAMETERS = {
 }
 
 # Dictionary that maps dataset names to an id
-IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats', 3: 'brats_ped'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
@@ -38,7 +38,7 @@ DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_4ds_resize'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_fused.txt'
@@ -54,14 +54,14 @@ def train_step(model, dataloader, optimizer, criterion, weighting_mode, device):
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
     processed_samples = 0
 
-    for batched_images, batched_masks, batched_dataset_ids in dataloader:
+    for batched_images, batched_masks, _ in dataloader:#batched_dataset_ids in dataloader:
         batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
         batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
-        batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
+        #batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
 
         optimizer.zero_grad()
 
-        y_pred = model(batched_images, dataset_ids=batched_dataset_ids, weighting_mode=weighting_mode)
+        y_pred = model(batched_images, dataset_ids=None, weighting_mode=weighting_mode)
         loss = criterion(y_pred, batched_masks)
 
         loss.backward()
@@ -138,7 +138,7 @@ if __name__ == '__main__':
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
 
     # Create model, optimizer, scheduler, and criterion
-    model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
+    model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
     optimizer = create_optimizer(model, HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
