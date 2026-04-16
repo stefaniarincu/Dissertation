@@ -97,8 +97,8 @@ class BaseSegmentationDataset(Dataset):
         image = cv.imread(self.images_paths[index], cv.IMREAD_COLOR)
         mask = cv.imread(self.masks_paths[index], cv.IMREAD_GRAYSCALE)
 
-        if image.shape[0] < 256 or image.shape[1] < 256:
-            image, mask = pad_black_to_256(image, mask)
+        '''if image.shape[0] < 256 or image.shape[1] < 256:
+            image, mask = pad_black_to_256(image, mask)'''
 
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)

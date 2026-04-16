@@ -403,21 +403,18 @@ class TResUnet(nn.Module):
 
 # Fused TransResUNet model that combines the features from the dataset specific models using cross-attention blocks and residual connections
 class ConvolveResidualBlock(nn.Module):
-    def __init__(self, in_channels):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
-        # Set out_channels to be one-third of in_channels
-        self.out_channels = in_channels // 3
-
-        self.conv1 = nn.Conv2d(in_channels, self.out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(self.out_channels)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
-        self.conv2 = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(self.out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
 
         # For matching dimensions in case the input and output channels are different
-        self.shortcut = nn.Conv2d(in_channels, self.out_channels, kernel_size=1, stride=1,
-                                   padding=0) if in_channels != self.out_channels else None
+        self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1,
+                                   padding=0) if in_channels != out_channels else None
 
     def forward(self, x):
         # Apply the first convolutional layer followed by ReLU
@@ -503,10 +500,10 @@ class TResUnetFusedModel(nn.Module):
 
         # Convolutional blocks for combined encoder outputs 
         # s1 = 64, s2 = 256, s3 = 512, bottleneck = 512 (multiply for concatenation)
-        self.conv_1 = ConvolveResidualBlock(512 * num_dataset_specific_models)
-        self.conv_2 = ConvolveResidualBlock(512 * num_dataset_specific_models)
-        self.conv_3 = ConvolveResidualBlock(256 * num_dataset_specific_models)
-        self.conv_4 = ConvolveResidualBlock(64 * num_dataset_specific_models)
+        self.conv_1 = ConvolveResidualBlock(512 * num_dataset_specific_models, 512)
+        self.conv_2 = ConvolveResidualBlock(512 * num_dataset_specific_models, 512)
+        self.conv_3 = ConvolveResidualBlock(256 * num_dataset_specific_models, 256)
+        self.conv_4 = ConvolveResidualBlock(64 * num_dataset_specific_models, 64)
 
         # Decoder blocks
         self.d1 = DecoderBlock([512, 512], 256)
