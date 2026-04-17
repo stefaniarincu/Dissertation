@@ -106,8 +106,8 @@ if __name__ == '__main__':
         A.HorizontalFlip(p=0.3),
         A.VerticalFlip(p=0.3),
         #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
-        # uUse floating point values for width and height ranges, which will be translated to fractions of the image dimenstions (1, 32)
-        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(0.004, 0.125), hole_width_range=(0.004, 0.125))
+        # Use floating point values for width and height ranges, which will be translated to fractions of the image dimenstions (1, 32)
+        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(0.00390625, 0.125), hole_width_range=(0.00390625, 0.125))
     ])
 
     # Create datasets for training and validation
