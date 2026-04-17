@@ -3,7 +3,7 @@ import time
 import torch
 from torch.utils.data import DataLoader
 import albumentations as A
-from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, log_results_train_val, log_results_test
+from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, log_results_train_val, log_results_test, seed_worker
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet
@@ -90,6 +90,9 @@ if __name__ == '__main__':
     create_log_file(TRAIN_LOG_PATH)
     log_hyperparameters(TRAIN_LOG_PATH, HYPERPARAMETERS)
 
+    g = torch.Generator()
+    g.manual_seed(SEED)
+
     # Load the images and masks file names for training and validation
     train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
     validation_images_paths, validation_masks_paths = load_split_data(DATASET_PATH, 'val.txt')
@@ -102,7 +105,9 @@ if __name__ == '__main__':
         A.Rotate(limit=35, p=0.3),
         A.HorizontalFlip(p=0.3),
         A.VerticalFlip(p=0.3),
-        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
+        #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
+        # uUse floating point values for width and height ranges, which will be translated to fractions of the image dimenstions (1, 32)
+        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(0.004, 0.125), hole_width_range=(0.004, 0.125))
     ])
 
     # Create datasets for training and validation
@@ -110,8 +115,8 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
     
     # Create dataloaders for training and validation datasets
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     # Create model, optimizer, scheduler and criterion
     model = TResUnet().to(DEVICE)
