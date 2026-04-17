@@ -30,7 +30,7 @@ DATASET_NAME = 'brats_ped' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/pad/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -107,7 +107,7 @@ if __name__ == '__main__':
         A.VerticalFlip(p=0.3),
         #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
         # Use floating point values for width and height ranges, which will be translated to fractions of the image dimenstions (1, 32)
-        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(0.00390625, 0.125), hole_width_range=(0.00390625, 0.125))
+        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1/HYPERPARAMETERS['image_size'][0], 32/HYPERPARAMETERS['image_size'][0]), hole_width_range=(1/HYPERPARAMETERS['image_size'][1], 32/HYPERPARAMETERS['image_size'][1]))
     ])
 
     # Create datasets for training and validation
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     
     # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True, worker_init_fn=seed_worker)
 
     # Create model, optimizer, scheduler and criterion
     model = TResUnet().to(DEVICE)
