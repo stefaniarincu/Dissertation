@@ -7,8 +7,8 @@ from utils import seed_all, create_log_file, print_and_save, log_hyperparameters
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 import sys
-sys.path.append('/home/dragos/disertation/sam_med2d')
-from sam_med2d.utils import get_boxes_from_mask, FocalDiceloss_IoULoss
+sys.path.append('/root/Disertation/sam_med2d')
+from sam_med2d.utils_file import get_boxes_from_mask, FocalDiceloss_IoULoss
 from sam_med2d.segment_anything import sam_model_registry
 from torch.nn import functional as F
 
@@ -26,20 +26,20 @@ HYPERPARAMETERS = {
 }
 
 # Constant for the root path for all necessary files
-ROOT_PATH = '/home/dragos/disertation'
+ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'bmshare', 'brats'
+DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/sam_med2d/dice/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/sam_med2d/fract/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
-SAM_CHECKPOINT_PATH = f'{ROOT_PATH}/sam_med2d/pretrained_sam/sam-med2d_b.pth'
+SAM_CHECKPOINT_PATH = f'{ROOT_PATH}/sam_med2d/pretrained_checkpoint/sam-med2d_b.pth'
 
 def sam_forward(model, image, batched_masks):
     image_embeddings = model.image_encoder(image)
@@ -134,7 +134,9 @@ if __name__ == '__main__':
         A.Rotate(limit=35, p=0.3),
         A.HorizontalFlip(p=0.3),
         A.VerticalFlip(p=0.3),
-        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
+        #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
+        # Use floating point values for width and height ranges, which will be translated to fractions of the image dimenstions (1, 32)
+        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1/HYPERPARAMETERS['image_size'][0], 32/HYPERPARAMETERS['image_size'][0]), hole_width_range=(1/HYPERPARAMETERS['image_size'][1], 32/HYPERPARAMETERS['image_size'][1]))
     ])
 
     # Create datasets for training and validation

@@ -24,6 +24,11 @@ def get_boxes_from_mask(mask, box_num=1, std = 0.1, max_pixel = 5):
     """
     if isinstance(mask, torch.Tensor):
         mask = mask.numpy()
+    
+    mask = (mask > 0).astype(np.uint8)
+    if np.count_nonzero(mask) == 0:
+        height, width = mask.shape
+        return torch.as_tensor([0, 0, width-1, height-1], dtype=torch.float)
         
     label_img = label(mask)
     regions = regionprops(label_img)
@@ -63,7 +68,7 @@ def get_boxes_from_mask(mask, box_num=1, std = 0.1, max_pixel = 5):
         x0, y0 = x0 + noise_x, y0 + noise_y
         x1, y1 = x1 + noise_x, y1 + noise_y
         noise_boxes.append((x0, y0, x1, y1))
-    return torch.as_tensor(noise_boxes, dtype=torch.float)
+    return torch.as_tensor(noise_boxes[0], dtype=torch.float)
 
 
 def select_random_points(pr, gt, point_num = 9):
