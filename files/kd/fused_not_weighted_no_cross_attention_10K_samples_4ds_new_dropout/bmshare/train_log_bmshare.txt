@@ -1,0 +1,439 @@
+
+2026-04-19 10:41:50.771480
+image_size: (256, 256)
+batch_size: 16
+num_epochs: 100
+init_learning_rate: 0.0001
+scheduler_patience: 5
+early_stopping_patience: 20
+alpha: 0.5
+initial_temperature: 2
+initial_contrastive_weight: 0.1
+max_contrastive_weight: 0.5
+weight_increment: 0.01
+map_loss_weight: 0.3
+
+Train set size: 14400
+Validation set size: 1894
+
+Valid F1 improved from -1.0000 to 0.5263. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 1 | Epoch Time: 2m 54s
+	Train Loss: 0.5386 - Jaccard: 0.6412 - Dice (F1): 0.6574 - Recall: 0.8447 - Precision: 0.7630
+	Validation Loss: 1.0094 - Jaccard: 0.4970 - Dice (F1): 0.5263 - Recall: 0.9194 - Precision: 0.5332
+
+Valid F1 improved from 0.5263 to 0.6971. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 2 | Epoch Time: 2m 53s
+	Train Loss: 0.4759 - Jaccard: 0.5598 - Dice (F1): 0.5859 - Recall: 0.9082 - Precision: 0.6093
+	Validation Loss: 0.8014 - Jaccard: 0.6680 - Dice (F1): 0.6971 - Recall: 0.8876 - Precision: 0.7448
+
+Valid F1 improved from 0.6971 to 0.7446. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 3 | Epoch Time: 2m 53s
+	Train Loss: 0.3085 - Jaccard: 0.7126 - Dice (F1): 0.7364 - Recall: 0.8741 - Precision: 0.8046
+	Validation Loss: 0.4760 - Jaccard: 0.7183 - Dice (F1): 0.7446 - Recall: 0.8739 - Precision: 0.8066
+
+Valid F1 improved from 0.7446 to 0.8154. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 4 | Epoch Time: 2m 53s
+	Train Loss: 0.2290 - Jaccard: 0.7732 - Dice (F1): 0.7948 - Recall: 0.8598 - Precision: 0.8870
+	Validation Loss: 0.3734 - Jaccard: 0.7905 - Dice (F1): 0.8154 - Recall: 0.8665 - Precision: 0.8953
+
+Valid F1 improved from 0.8154 to 0.8328. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 5 | Epoch Time: 2m 53s
+	Train Loss: 0.2066 - Jaccard: 0.7894 - Dice (F1): 0.8113 - Recall: 0.8645 - Precision: 0.8998
+	Validation Loss: 0.3561 - Jaccard: 0.8113 - Dice (F1): 0.8328 - Recall: 0.8569 - Precision: 0.9344
+
+Epoch 6 | Epoch Time: 2m 52s
+	Train Loss: 0.1991 - Jaccard: 0.7969 - Dice (F1): 0.8188 - Recall: 0.8656 - Precision: 0.9064
+	Validation Loss: 0.3462 - Jaccard: 0.8059 - Dice (F1): 0.8286 - Recall: 0.8627 - Precision: 0.9208
+
+Valid F1 improved from 0.8328 to 0.8372. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 7 | Epoch Time: 2m 53s
+	Train Loss: 0.2373 - Jaccard: 0.7912 - Dice (F1): 0.8130 - Recall: 0.8651 - Precision: 0.9009
+	Validation Loss: 0.3312 - Jaccard: 0.8118 - Dice (F1): 0.8372 - Recall: 0.8793 - Precision: 0.9068
+
+Epoch 8 | Epoch Time: 2m 52s
+	Train Loss: 0.2584 - Jaccard: 0.7877 - Dice (F1): 0.8103 - Recall: 0.8687 - Precision: 0.8937
+	Validation Loss: 0.3696 - Jaccard: 0.7702 - Dice (F1): 0.7965 - Recall: 0.8869 - Precision: 0.8541
+
+Epoch 9 | Epoch Time: 2m 53s
+	Train Loss: 0.2838 - Jaccard: 0.8007 - Dice (F1): 0.8224 - Recall: 0.8661 - Precision: 0.9100
+	Validation Loss: 0.3391 - Jaccard: 0.8061 - Dice (F1): 0.8310 - Recall: 0.8572 - Precision: 0.9214
+
+Epoch 10 | Epoch Time: 2m 53s
+	Train Loss: 0.3007 - Jaccard: 0.8013 - Dice (F1): 0.8235 - Recall: 0.8682 - Precision: 0.9087
+	Validation Loss: 0.3727 - Jaccard: 0.7994 - Dice (F1): 0.8239 - Recall: 0.8738 - Precision: 0.8975
+
+Epoch 11 | Epoch Time: 2m 53s
+	Train Loss: 0.3194 - Jaccard: 0.8010 - Dice (F1): 0.8220 - Recall: 0.8647 - Precision: 0.9134
+	Validation Loss: 0.3371 - Jaccard: 0.8113 - Dice (F1): 0.8336 - Recall: 0.8623 - Precision: 0.9293
+
+Valid F1 improved from 0.8372 to 0.8402. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 12 | Epoch Time: 2m 53s
+	Train Loss: 0.3294 - Jaccard: 0.8059 - Dice (F1): 0.8275 - Recall: 0.8680 - Precision: 0.9144
+	Validation Loss: 0.3066 - Jaccard: 0.8164 - Dice (F1): 0.8402 - Recall: 0.8721 - Precision: 0.9227
+
+Epoch 13 | Epoch Time: 2m 52s
+	Train Loss: 0.3378 - Jaccard: 0.8092 - Dice (F1): 0.8311 - Recall: 0.8705 - Precision: 0.9155
+	Validation Loss: 0.3276 - Jaccard: 0.8073 - Dice (F1): 0.8334 - Recall: 0.8853 - Precision: 0.8974
+
+Valid F1 improved from 0.8402 to 0.8445. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 14 | Epoch Time: 2m 53s
+	Train Loss: 0.3498 - Jaccard: 0.8083 - Dice (F1): 0.8300 - Recall: 0.8707 - Precision: 0.9143
+	Validation Loss: 0.3009 - Jaccard: 0.8206 - Dice (F1): 0.8445 - Recall: 0.8750 - Precision: 0.9242
+
+Epoch 15 | Epoch Time: 2m 53s
+	Train Loss: 0.3561 - Jaccard: 0.8051 - Dice (F1): 0.8271 - Recall: 0.8704 - Precision: 0.9109
+	Validation Loss: 0.3046 - Jaccard: 0.8179 - Dice (F1): 0.8407 - Recall: 0.8693 - Precision: 0.9290
+
+Epoch 16 | Epoch Time: 2m 53s
+	Train Loss: 0.3670 - Jaccard: 0.8015 - Dice (F1): 0.8236 - Recall: 0.8698 - Precision: 0.9066
+	Validation Loss: 0.3206 - Jaccard: 0.8098 - Dice (F1): 0.8365 - Recall: 0.8781 - Precision: 0.9039
+
+Epoch 17 | Epoch Time: 2m 53s
+	Train Loss: 0.3487 - Jaccard: 0.8062 - Dice (F1): 0.8290 - Recall: 0.8736 - Precision: 0.9070
+	Validation Loss: 0.3201 - Jaccard: 0.8120 - Dice (F1): 0.8366 - Recall: 0.8758 - Precision: 0.9131
+
+Epoch 18 | Epoch Time: 2m 52s
+	Train Loss: 0.3392 - Jaccard: 0.8127 - Dice (F1): 0.8348 - Recall: 0.8721 - Precision: 0.9168
+	Validation Loss: 0.2995 - Jaccard: 0.8187 - Dice (F1): 0.8408 - Recall: 0.8690 - Precision: 0.9299
+
+Epoch 19 | Epoch Time: 2m 52s
+	Train Loss: 0.3343 - Jaccard: 0.8115 - Dice (F1): 0.8329 - Recall: 0.8700 - Precision: 0.9203
+	Validation Loss: 0.3263 - Jaccard: 0.7925 - Dice (F1): 0.8188 - Recall: 0.8901 - Precision: 0.8750
+
+Epoch 20 | Epoch Time: 2m 53s
+	Train Loss: 0.3299 - Jaccard: 0.8099 - Dice (F1): 0.8314 - Recall: 0.8693 - Precision: 0.9173
+	Validation Loss: 0.3205 - Jaccard: 0.8160 - Dice (F1): 0.8389 - Recall: 0.8727 - Precision: 0.9229
+
+Epoch 21 | Epoch Time: 2m 53s
+	Train Loss: 0.3221 - Jaccard: 0.8097 - Dice (F1): 0.8321 - Recall: 0.8723 - Precision: 0.9122
+	Validation Loss: 0.3024 - Jaccard: 0.8077 - Dice (F1): 0.8331 - Recall: 0.8853 - Precision: 0.8994
+
+Epoch 22 | Epoch Time: 2m 53s
+	Train Loss: 0.3103 - Jaccard: 0.8140 - Dice (F1): 0.8366 - Recall: 0.8759 - Precision: 0.9145
+	Validation Loss: 0.2963 - Jaccard: 0.8194 - Dice (F1): 0.8419 - Recall: 0.8685 - Precision: 0.9342
+
+Epoch 23 | Epoch Time: 2m 53s
+	Train Loss: 0.3011 - Jaccard: 0.8164 - Dice (F1): 0.8385 - Recall: 0.8734 - Precision: 0.9209
+	Validation Loss: 0.3086 - Jaccard: 0.8151 - Dice (F1): 0.8412 - Recall: 0.8910 - Precision: 0.9007
+
+Epoch 24 | Epoch Time: 2m 52s
+	Train Loss: 0.3004 - Jaccard: 0.8153 - Dice (F1): 0.8377 - Recall: 0.8753 - Precision: 0.9184
+	Validation Loss: 0.2948 - Jaccard: 0.8216 - Dice (F1): 0.8434 - Recall: 0.8648 - Precision: 0.9395
+
+Valid F1 improved from 0.8445 to 0.8461. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 25 | Epoch Time: 2m 53s
+	Train Loss: 0.2893 - Jaccard: 0.8207 - Dice (F1): 0.8429 - Recall: 0.8761 - Precision: 0.9208
+	Validation Loss: 0.2935 - Jaccard: 0.8221 - Dice (F1): 0.8461 - Recall: 0.8777 - Precision: 0.9244
+
+Epoch 26 | Epoch Time: 2m 52s
+	Train Loss: 0.2824 - Jaccard: 0.8226 - Dice (F1): 0.8448 - Recall: 0.8769 - Precision: 0.9239
+	Validation Loss: 0.4314 - Jaccard: 0.7308 - Dice (F1): 0.7571 - Recall: 0.8891 - Precision: 0.8100
+
+Epoch 27 | Epoch Time: 2m 52s
+	Train Loss: 0.2857 - Jaccard: 0.8117 - Dice (F1): 0.8338 - Recall: 0.8743 - Precision: 0.9140
+	Validation Loss: 0.3089 - Jaccard: 0.8152 - Dice (F1): 0.8406 - Recall: 0.8857 - Precision: 0.9065
+
+Epoch 28 | Epoch Time: 2m 52s
+	Train Loss: 0.2810 - Jaccard: 0.8178 - Dice (F1): 0.8401 - Recall: 0.8752 - Precision: 0.9202
+	Validation Loss: 0.3035 - Jaccard: 0.8144 - Dice (F1): 0.8411 - Recall: 0.8943 - Precision: 0.8955
+
+Epoch 29 | Epoch Time: 2m 52s
+	Train Loss: 0.2765 - Jaccard: 0.8158 - Dice (F1): 0.8384 - Recall: 0.8765 - Precision: 0.9153
+	Validation Loss: 0.2994 - Jaccard: 0.8204 - Dice (F1): 0.8450 - Recall: 0.8765 - Precision: 0.9258
+
+Valid F1 improved from 0.8461 to 0.8501. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 30 | Epoch Time: 2m 53s
+	Train Loss: 0.2707 - Jaccard: 0.8207 - Dice (F1): 0.8428 - Recall: 0.8736 - Precision: 0.9254
+	Validation Loss: 0.2898 - Jaccard: 0.8257 - Dice (F1): 0.8501 - Recall: 0.8767 - Precision: 0.9278
+
+Epoch 31 | Epoch Time: 2m 53s
+	Train Loss: 0.2713 - Jaccard: 0.8191 - Dice (F1): 0.8410 - Recall: 0.8737 - Precision: 0.9237
+	Validation Loss: 0.3648 - Jaccard: 0.7962 - Dice (F1): 0.8164 - Recall: 0.8489 - Precision: 0.9262
+
+Epoch 32 | Epoch Time: 2m 53s
+	Train Loss: 0.2746 - Jaccard: 0.8165 - Dice (F1): 0.8375 - Recall: 0.8690 - Precision: 0.9260
+	Validation Loss: 0.3015 - Jaccard: 0.8193 - Dice (F1): 0.8422 - Recall: 0.8705 - Precision: 0.9293
+
+Epoch 33 | Epoch Time: 2m 53s
+	Train Loss: 0.2636 - Jaccard: 0.8184 - Dice (F1): 0.8407 - Recall: 0.8768 - Precision: 0.9197
+	Validation Loss: 0.2734 - Jaccard: 0.8245 - Dice (F1): 0.8491 - Recall: 0.8766 - Precision: 0.9265
+
+Epoch 34 | Epoch Time: 2m 52s
+	Train Loss: 0.2534 - Jaccard: 0.8278 - Dice (F1): 0.8502 - Recall: 0.8780 - Precision: 0.9282
+	Validation Loss: 0.3052 - Jaccard: 0.8177 - Dice (F1): 0.8418 - Recall: 0.8787 - Precision: 0.9189
+
+Epoch 35 | Epoch Time: 2m 52s
+	Train Loss: 0.2739 - Jaccard: 0.8140 - Dice (F1): 0.8342 - Recall: 0.8644 - Precision: 0.9296
+	Validation Loss: 0.3090 - Jaccard: 0.8177 - Dice (F1): 0.8406 - Recall: 0.8704 - Precision: 0.9253
+
+Epoch 36 | Epoch Time: 2m 52s
+	Train Loss: 0.2616 - Jaccard: 0.8184 - Dice (F1): 0.8402 - Recall: 0.8752 - Precision: 0.9213
+	Validation Loss: 0.2914 - Jaccard: 0.8247 - Dice (F1): 0.8491 - Recall: 0.8787 - Precision: 0.9251
+
+Epoch 37 | Epoch Time: 2m 52s
+	Train Loss: 0.2474 - Jaccard: 0.8249 - Dice (F1): 0.8474 - Recall: 0.8789 - Precision: 0.9242
+	Validation Loss: 0.2858 - Jaccard: 0.8261 - Dice (F1): 0.8488 - Recall: 0.8705 - Precision: 0.9351
+
+Epoch 38 | Epoch Time: 2m 52s
+	Train Loss: 0.2514 - Jaccard: 0.8170 - Dice (F1): 0.8399 - Recall: 0.8789 - Precision: 0.9143
+	Validation Loss: 0.3242 - Jaccard: 0.8041 - Dice (F1): 0.8297 - Recall: 0.8818 - Precision: 0.8974
+
+Epoch 39 | Epoch Time: 2m 52s
+	Train Loss: 0.2487 - Jaccard: 0.8194 - Dice (F1): 0.8425 - Recall: 0.8787 - Precision: 0.9165
+	Validation Loss: 0.2984 - Jaccard: 0.8208 - Dice (F1): 0.8457 - Recall: 0.8819 - Precision: 0.9156
+
+Valid F1 improved from 0.8501 to 0.8539. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 40 | Epoch Time: 2m 53s
+	Train Loss: 0.2458 - Jaccard: 0.8283 - Dice (F1): 0.8503 - Recall: 0.8770 - Precision: 0.9295
+	Validation Loss: 0.2820 - Jaccard: 0.8297 - Dice (F1): 0.8539 - Recall: 0.8847 - Precision: 0.9240
+
+Epoch 41 | Epoch Time: 2m 53s
+	Train Loss: 0.2389 - Jaccard: 0.8341 - Dice (F1): 0.8560 - Recall: 0.8794 - Precision: 0.9350
+	Validation Loss: 0.2942 - Jaccard: 0.8263 - Dice (F1): 0.8521 - Recall: 0.8901 - Precision: 0.9145
+
+Epoch 42 | Epoch Time: 2m 53s
+	Train Loss: 0.2420 - Jaccard: 0.8280 - Dice (F1): 0.8503 - Recall: 0.8797 - Precision: 0.9266
+	Validation Loss: 0.2778 - Jaccard: 0.8223 - Dice (F1): 0.8454 - Recall: 0.8730 - Precision: 0.9296
+
+Epoch 43 | Epoch Time: 2m 53s
+	Train Loss: 0.2401 - Jaccard: 0.8256 - Dice (F1): 0.8481 - Recall: 0.8791 - Precision: 0.9240
+	Validation Loss: 0.2861 - Jaccard: 0.8241 - Dice (F1): 0.8494 - Recall: 0.8841 - Precision: 0.9197
+
+Epoch 44 | Epoch Time: 2m 52s
+	Train Loss: 0.2412 - Jaccard: 0.8203 - Dice (F1): 0.8431 - Recall: 0.8800 - Precision: 0.9166
+	Validation Loss: 0.2830 - Jaccard: 0.8212 - Dice (F1): 0.8460 - Recall: 0.8853 - Precision: 0.9125
+
+Epoch 45 | Epoch Time: 2m 53s
+	Train Loss: 0.2301 - Jaccard: 0.8322 - Dice (F1): 0.8546 - Recall: 0.8817 - Precision: 0.9289
+	Validation Loss: 0.2995 - Jaccard: 0.8208 - Dice (F1): 0.8483 - Recall: 0.9016 - Precision: 0.8962
+
+Epoch 46 | Epoch Time: 2m 53s
+	Train Loss: 0.2432 - Jaccard: 0.8143 - Dice (F1): 0.8371 - Recall: 0.8807 - Precision: 0.9093
+	Validation Loss: 0.2764 - Jaccard: 0.8200 - Dice (F1): 0.8428 - Recall: 0.8686 - Precision: 0.9319
+
+Epoch 47 | Epoch Time: 2m 53s
+	Train Loss: 0.2370 - Jaccard: 0.8232 - Dice (F1): 0.8458 - Recall: 0.8790 - Precision: 0.9216
+	Validation Loss: 0.2749 - Jaccard: 0.8232 - Dice (F1): 0.8504 - Recall: 0.8943 - Precision: 0.9051
+
+Epoch 48 | Epoch Time: 2m 53s
+	Train Loss: 0.2302 - Jaccard: 0.8333 - Dice (F1): 0.8554 - Recall: 0.8795 - Precision: 0.9342
+	Validation Loss: 0.2751 - Jaccard: 0.8313 - Dice (F1): 0.8536 - Recall: 0.8702 - Precision: 0.9413
+
+Valid F1 improved from 0.8539 to 0.8541. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 49 | Epoch Time: 2m 53s
+	Train Loss: 0.2308 - Jaccard: 0.8256 - Dice (F1): 0.8484 - Recall: 0.8815 - Precision: 0.9215
+	Validation Loss: 0.2737 - Jaccard: 0.8293 - Dice (F1): 0.8541 - Recall: 0.8843 - Precision: 0.9248
+
+Epoch 50 | Epoch Time: 2m 52s
+	Train Loss: 0.2283 - Jaccard: 0.8303 - Dice (F1): 0.8530 - Recall: 0.8823 - Precision: 0.9264
+	Validation Loss: 0.2717 - Jaccard: 0.8231 - Dice (F1): 0.8467 - Recall: 0.8758 - Precision: 0.9279
+
+Valid F1 improved from 0.8541 to 0.8541. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 51 | Epoch Time: 2m 53s
+	Train Loss: 0.2293 - Jaccard: 0.8328 - Dice (F1): 0.8550 - Recall: 0.8800 - Precision: 0.9324
+	Validation Loss: 0.2670 - Jaccard: 0.8302 - Dice (F1): 0.8541 - Recall: 0.8790 - Precision: 0.9333
+
+Valid F1 improved from 0.8541 to 0.8548. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 52 | Epoch Time: 2m 53s
+	Train Loss: 0.2251 - Jaccard: 0.8317 - Dice (F1): 0.8545 - Recall: 0.8831 - Precision: 0.9267
+	Validation Loss: 0.2827 - Jaccard: 0.8296 - Dice (F1): 0.8548 - Recall: 0.8912 - Precision: 0.9183
+
+Epoch 53 | Epoch Time: 2m 54s
+	Train Loss: 0.2214 - Jaccard: 0.8361 - Dice (F1): 0.8585 - Recall: 0.8819 - Precision: 0.9329
+	Validation Loss: 0.2761 - Jaccard: 0.8266 - Dice (F1): 0.8488 - Recall: 0.8647 - Precision: 0.9446
+
+Epoch 54 | Epoch Time: 2m 53s
+	Train Loss: 0.2205 - Jaccard: 0.8345 - Dice (F1): 0.8570 - Recall: 0.8830 - Precision: 0.9307
+	Validation Loss: 0.2577 - Jaccard: 0.8299 - Dice (F1): 0.8531 - Recall: 0.8735 - Precision: 0.9383
+
+Epoch 55 | Epoch Time: 2m 53s
+	Train Loss: 0.2175 - Jaccard: 0.8370 - Dice (F1): 0.8595 - Recall: 0.8843 - Precision: 0.9330
+	Validation Loss: 0.2911 - Jaccard: 0.8201 - Dice (F1): 0.8459 - Recall: 0.8975 - Precision: 0.9002
+
+Valid F1 improved from 0.8548 to 0.8561. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 56 | Epoch Time: 2m 53s
+	Train Loss: 0.2239 - Jaccard: 0.8336 - Dice (F1): 0.8561 - Recall: 0.8841 - Precision: 0.9278
+	Validation Loss: 0.2434 - Jaccard: 0.8340 - Dice (F1): 0.8561 - Recall: 0.8760 - Precision: 0.9424
+
+Epoch 57 | Epoch Time: 2m 53s
+	Train Loss: 0.2152 - Jaccard: 0.8433 - Dice (F1): 0.8653 - Recall: 0.8836 - Precision: 0.9402
+	Validation Loss: 0.2666 - Jaccard: 0.8313 - Dice (F1): 0.8555 - Recall: 0.8896 - Precision: 0.9211
+
+Epoch 58 | Epoch Time: 2m 52s
+	Train Loss: 0.2141 - Jaccard: 0.8409 - Dice (F1): 0.8634 - Recall: 0.8859 - Precision: 0.9347
+	Validation Loss: 0.2543 - Jaccard: 0.8324 - Dice (F1): 0.8549 - Recall: 0.8783 - Precision: 0.9374
+
+Valid F1 improved from 0.8561 to 0.8588. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 59 | Epoch Time: 2m 53s
+	Train Loss: 0.2198 - Jaccard: 0.8370 - Dice (F1): 0.8590 - Recall: 0.8815 - Precision: 0.9362
+	Validation Loss: 0.2508 - Jaccard: 0.8354 - Dice (F1): 0.8588 - Recall: 0.8827 - Precision: 0.9360
+
+Epoch 60 | Epoch Time: 2m 52s
+	Train Loss: 0.2129 - Jaccard: 0.8402 - Dice (F1): 0.8630 - Recall: 0.8862 - Precision: 0.9329
+	Validation Loss: 0.2703 - Jaccard: 0.8289 - Dice (F1): 0.8541 - Recall: 0.8936 - Precision: 0.9163
+
+Epoch 61 | Epoch Time: 2m 52s
+	Train Loss: 0.2096 - Jaccard: 0.8423 - Dice (F1): 0.8650 - Recall: 0.8870 - Precision: 0.9354
+	Validation Loss: 0.2592 - Jaccard: 0.8349 - Dice (F1): 0.8580 - Recall: 0.8812 - Precision: 0.9372
+
+Valid F1 improved from 0.8588 to 0.8602. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 62 | Epoch Time: 2m 53s
+	Train Loss: 0.2097 - Jaccard: 0.8412 - Dice (F1): 0.8640 - Recall: 0.8875 - Precision: 0.9334
+	Validation Loss: 0.2472 - Jaccard: 0.8372 - Dice (F1): 0.8602 - Recall: 0.8810 - Precision: 0.9389
+
+Epoch 63 | Epoch Time: 2m 52s
+	Train Loss: 0.2077 - Jaccard: 0.8432 - Dice (F1): 0.8660 - Recall: 0.8880 - Precision: 0.9352
+	Validation Loss: 0.2689 - Jaccard: 0.8282 - Dice (F1): 0.8535 - Recall: 0.8947 - Precision: 0.9148
+
+Epoch 64 | Epoch Time: 2m 53s
+	Train Loss: 0.2078 - Jaccard: 0.8411 - Dice (F1): 0.8636 - Recall: 0.8863 - Precision: 0.9352
+	Validation Loss: 0.2491 - Jaccard: 0.8345 - Dice (F1): 0.8571 - Recall: 0.8745 - Precision: 0.9436
+
+Valid F1 improved from 0.8602 to 0.8614. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 65 | Epoch Time: 2m 53s
+	Train Loss: 0.2049 - Jaccard: 0.8435 - Dice (F1): 0.8660 - Recall: 0.8855 - Precision: 0.9384
+	Validation Loss: 0.2502 - Jaccard: 0.8380 - Dice (F1): 0.8614 - Recall: 0.8815 - Precision: 0.9402
+
+Epoch 66 | Epoch Time: 2m 53s
+	Train Loss: 0.2035 - Jaccard: 0.8461 - Dice (F1): 0.8687 - Recall: 0.8879 - Precision: 0.9386
+	Validation Loss: 0.2583 - Jaccard: 0.8336 - Dice (F1): 0.8578 - Recall: 0.8868 - Precision: 0.9293
+
+Epoch 67 | Epoch Time: 2m 53s
+	Train Loss: 0.2030 - Jaccard: 0.8417 - Dice (F1): 0.8644 - Recall: 0.8869 - Precision: 0.9353
+	Validation Loss: 0.2527 - Jaccard: 0.8350 - Dice (F1): 0.8596 - Recall: 0.8862 - Precision: 0.9314
+
+Valid F1 improved from 0.8614 to 0.8618. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 68 | Epoch Time: 2m 53s
+	Train Loss: 0.2024 - Jaccard: 0.8466 - Dice (F1): 0.8692 - Recall: 0.8873 - Precision: 0.9404
+	Validation Loss: 0.2512 - Jaccard: 0.8377 - Dice (F1): 0.8618 - Recall: 0.8892 - Precision: 0.9300
+
+Epoch 69 | Epoch Time: 2m 53s
+	Train Loss: 0.2001 - Jaccard: 0.8486 - Dice (F1): 0.8710 - Recall: 0.8874 - Precision: 0.9428
+	Validation Loss: 0.2565 - Jaccard: 0.8357 - Dice (F1): 0.8593 - Recall: 0.8847 - Precision: 0.9327
+
+Epoch 70 | Epoch Time: 2m 53s
+	Train Loss: 0.2026 - Jaccard: 0.8434 - Dice (F1): 0.8657 - Recall: 0.8872 - Precision: 0.9366
+	Validation Loss: 0.2493 - Jaccard: 0.8366 - Dice (F1): 0.8599 - Recall: 0.8810 - Precision: 0.9400
+
+Epoch 71 | Epoch Time: 2m 53s
+	Train Loss: 0.1982 - Jaccard: 0.8476 - Dice (F1): 0.8699 - Recall: 0.8872 - Precision: 0.9417
+	Validation Loss: 0.2559 - Jaccard: 0.8363 - Dice (F1): 0.8598 - Recall: 0.8805 - Precision: 0.9395
+
+Valid F1 improved from 0.8618 to 0.8622. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 72 | Epoch Time: 2m 53s
+	Train Loss: 0.1974 - Jaccard: 0.8507 - Dice (F1): 0.8732 - Recall: 0.8881 - Precision: 0.9440
+	Validation Loss: 0.2554 - Jaccard: 0.8387 - Dice (F1): 0.8622 - Recall: 0.8830 - Precision: 0.9403
+
+Epoch 73 | Epoch Time: 2m 53s
+	Train Loss: 0.1955 - Jaccard: 0.8505 - Dice (F1): 0.8729 - Recall: 0.8899 - Precision: 0.9421
+	Validation Loss: 0.2525 - Jaccard: 0.8386 - Dice (F1): 0.8620 - Recall: 0.8818 - Precision: 0.9405
+
+Valid F1 improved from 0.8622 to 0.8631. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 74 | Epoch Time: 2m 53s
+	Train Loss: 0.1945 - Jaccard: 0.8492 - Dice (F1): 0.8722 - Recall: 0.8925 - Precision: 0.9373
+	Validation Loss: 0.2461 - Jaccard: 0.8396 - Dice (F1): 0.8631 - Recall: 0.8825 - Precision: 0.9413
+
+Epoch 75 | Epoch Time: 2m 53s
+	Train Loss: 0.1939 - Jaccard: 0.8490 - Dice (F1): 0.8720 - Recall: 0.8907 - Precision: 0.9398
+	Validation Loss: 0.2415 - Jaccard: 0.8392 - Dice (F1): 0.8628 - Recall: 0.8851 - Precision: 0.9378
+
+Epoch 76 | Epoch Time: 2m 53s
+	Train Loss: 0.1953 - Jaccard: 0.8503 - Dice (F1): 0.8726 - Recall: 0.8885 - Precision: 0.9431
+	Validation Loss: 0.2452 - Jaccard: 0.8372 - Dice (F1): 0.8596 - Recall: 0.8774 - Precision: 0.9455
+
+Valid F1 improved from 0.8631 to 0.8637. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 77 | Epoch Time: 2m 53s
+	Train Loss: 0.1939 - Jaccard: 0.8508 - Dice (F1): 0.8730 - Recall: 0.8887 - Precision: 0.9439
+	Validation Loss: 0.2441 - Jaccard: 0.8397 - Dice (F1): 0.8637 - Recall: 0.8853 - Precision: 0.9380
+
+Valid F1 improved from 0.8637 to 0.8649. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 78 | Epoch Time: 2m 53s
+	Train Loss: 0.1923 - Jaccard: 0.8495 - Dice (F1): 0.8720 - Recall: 0.8896 - Precision: 0.9417
+	Validation Loss: 0.2461 - Jaccard: 0.8401 - Dice (F1): 0.8649 - Recall: 0.8881 - Precision: 0.9358
+
+Valid F1 improved from 0.8649 to 0.8658. Saving checkpoint: /root/Disertation/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_new_dropout/bmshare/distilled_model_bmshare.pth
+Epoch 79 | Epoch Time: 2m 53s
+	Train Loss: 0.1899 - Jaccard: 0.8535 - Dice (F1): 0.8763 - Recall: 0.8914 - Precision: 0.9432
+	Validation Loss: 0.2481 - Jaccard: 0.8422 - Dice (F1): 0.8658 - Recall: 0.8836 - Precision: 0.9442
+
+Epoch 80 | Epoch Time: 2m 52s
+	Train Loss: 0.1905 - Jaccard: 0.8522 - Dice (F1): 0.8749 - Recall: 0.8918 - Precision: 0.9420
+	Validation Loss: 0.2548 - Jaccard: 0.8394 - Dice (F1): 0.8629 - Recall: 0.8838 - Precision: 0.9409
+
+Epoch 81 | Epoch Time: 2m 53s
+	Train Loss: 0.1879 - Jaccard: 0.8543 - Dice (F1): 0.8770 - Recall: 0.8919 - Precision: 0.9435
+	Validation Loss: 0.2537 - Jaccard: 0.8390 - Dice (F1): 0.8625 - Recall: 0.8826 - Precision: 0.9405
+
+Epoch 82 | Epoch Time: 2m 53s
+	Train Loss: 0.1889 - Jaccard: 0.8549 - Dice (F1): 0.8774 - Recall: 0.8916 - Precision: 0.9445
+	Validation Loss: 0.2522 - Jaccard: 0.8407 - Dice (F1): 0.8631 - Recall: 0.8766 - Precision: 0.9505
+
+Epoch 83 | Epoch Time: 2m 53s
+	Train Loss: 0.1879 - Jaccard: 0.8550 - Dice (F1): 0.8773 - Recall: 0.8915 - Precision: 0.9453
+	Validation Loss: 0.2496 - Jaccard: 0.8398 - Dice (F1): 0.8636 - Recall: 0.8876 - Precision: 0.9363
+
+Epoch 84 | Epoch Time: 2m 53s
+	Train Loss: 0.1869 - Jaccard: 0.8563 - Dice (F1): 0.8783 - Recall: 0.8903 - Precision: 0.9486
+	Validation Loss: 0.2482 - Jaccard: 0.8407 - Dice (F1): 0.8640 - Recall: 0.8833 - Precision: 0.9428
+
+Epoch 85 | Epoch Time: 2m 53s
+	Train Loss: 0.1880 - Jaccard: 0.8552 - Dice (F1): 0.8777 - Recall: 0.8927 - Precision: 0.9436
+	Validation Loss: 0.2466 - Jaccard: 0.8396 - Dice (F1): 0.8627 - Recall: 0.8819 - Precision: 0.9426
+
+Epoch 86 | Epoch Time: 2m 53s
+	Train Loss: 0.1855 - Jaccard: 0.8569 - Dice (F1): 0.8793 - Recall: 0.8930 - Precision: 0.9462
+	Validation Loss: 0.2512 - Jaccard: 0.8378 - Dice (F1): 0.8616 - Recall: 0.8893 - Precision: 0.9323
+
+Epoch 87 | Epoch Time: 2m 53s
+	Train Loss: 0.1857 - Jaccard: 0.8555 - Dice (F1): 0.8779 - Recall: 0.8928 - Precision: 0.9449
+	Validation Loss: 0.2466 - Jaccard: 0.8405 - Dice (F1): 0.8639 - Recall: 0.8859 - Precision: 0.9386
+
+Epoch 88 | Epoch Time: 2m 53s
+	Train Loss: 0.1845 - Jaccard: 0.8560 - Dice (F1): 0.8783 - Recall: 0.8932 - Precision: 0.9447
+	Validation Loss: 0.2461 - Jaccard: 0.8407 - Dice (F1): 0.8640 - Recall: 0.8846 - Precision: 0.9398
+
+Epoch 89 | Epoch Time: 2m 53s
+	Train Loss: 0.1857 - Jaccard: 0.8561 - Dice (F1): 0.8786 - Recall: 0.8929 - Precision: 0.9455
+	Validation Loss: 0.2472 - Jaccard: 0.8403 - Dice (F1): 0.8632 - Recall: 0.8809 - Precision: 0.9443
+
+Epoch 90 | Epoch Time: 2m 53s
+	Train Loss: 0.1856 - Jaccard: 0.8570 - Dice (F1): 0.8791 - Recall: 0.8925 - Precision: 0.9473
+	Validation Loss: 0.2461 - Jaccard: 0.8408 - Dice (F1): 0.8637 - Recall: 0.8831 - Precision: 0.9430
+
+Epoch 91 | Epoch Time: 2m 53s
+	Train Loss: 0.1830 - Jaccard: 0.8567 - Dice (F1): 0.8791 - Recall: 0.8924 - Precision: 0.9472
+	Validation Loss: 0.2456 - Jaccard: 0.8403 - Dice (F1): 0.8638 - Recall: 0.8848 - Precision: 0.9395
+
+Epoch 92 | Epoch Time: 2m 53s
+	Train Loss: 0.1843 - Jaccard: 0.8556 - Dice (F1): 0.8781 - Recall: 0.8932 - Precision: 0.9436
+	Validation Loss: 0.2454 - Jaccard: 0.8397 - Dice (F1): 0.8632 - Recall: 0.8843 - Precision: 0.9382
+
+Epoch 93 | Epoch Time: 2m 53s
+	Train Loss: 0.1836 - Jaccard: 0.8575 - Dice (F1): 0.8797 - Recall: 0.8928 - Precision: 0.9465
+	Validation Loss: 0.2454 - Jaccard: 0.8399 - Dice (F1): 0.8630 - Recall: 0.8830 - Precision: 0.9416
+
+Epoch 94 | Epoch Time: 2m 53s
+	Train Loss: 0.1829 - Jaccard: 0.8584 - Dice (F1): 0.8806 - Recall: 0.8932 - Precision: 0.9476
+	Validation Loss: 0.2452 - Jaccard: 0.8405 - Dice (F1): 0.8640 - Recall: 0.8846 - Precision: 0.9400
+
+Epoch 95 | Epoch Time: 2m 53s
+	Train Loss: 0.1830 - Jaccard: 0.8573 - Dice (F1): 0.8797 - Recall: 0.8940 - Precision: 0.9457
+	Validation Loss: 0.2452 - Jaccard: 0.8401 - Dice (F1): 0.8635 - Recall: 0.8834 - Precision: 0.9403
+
+Epoch 96 | Epoch Time: 2m 53s
+	Train Loss: 0.1833 - Jaccard: 0.8571 - Dice (F1): 0.8793 - Recall: 0.8928 - Precision: 0.9470
+	Validation Loss: 0.2446 - Jaccard: 0.8407 - Dice (F1): 0.8641 - Recall: 0.8847 - Precision: 0.9397
+
+Epoch 97 | Epoch Time: 2m 53s
+	Train Loss: 0.1838 - Jaccard: 0.8572 - Dice (F1): 0.8795 - Recall: 0.8940 - Precision: 0.9460
+	Validation Loss: 0.2448 - Jaccard: 0.8404 - Dice (F1): 0.8637 - Recall: 0.8842 - Precision: 0.9407
+
+Epoch 98 | Epoch Time: 2m 52s
+	Train Loss: 0.1830 - Jaccard: 0.8583 - Dice (F1): 0.8806 - Recall: 0.8934 - Precision: 0.9467
+	Validation Loss: 0.2446 - Jaccard: 0.8399 - Dice (F1): 0.8632 - Recall: 0.8838 - Precision: 0.9405
+
+Epoch 99 | Epoch Time: 2m 52s
+	Train Loss: 0.1831 - Jaccard: 0.8584 - Dice (F1): 0.8807 - Recall: 0.8937 - Precision: 0.9475
+	Validation Loss: 0.2446 - Jaccard: 0.8399 - Dice (F1): 0.8632 - Recall: 0.8840 - Precision: 0.9398
+
+Early stopping triggered after 99 epochs.
