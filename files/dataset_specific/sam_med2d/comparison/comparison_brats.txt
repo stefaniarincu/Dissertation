@@ -10,9 +10,41 @@ Test Loss: 0.0820 - Jaccard: 0.9187 - Dice (F1): 0.9490 - Recall: 0.9496 - Preci
 Fine-tuned Sam-Med2D with tresunet predicted masks:
 Test Loss: 0.1843 - Jaccard: 0.8738 - Dice (F1): 0.9026 - Recall: 0.9277 - Precision: 0.9390
 
+Fine-tuned Sam-Med2D with box as whole image:
+Test Loss: 1.0076 - Jaccard: 0.5651 - Dice (F1): 0.5651 - Recall: 0.5651 - Precision: 1.0000
+
+Fine-tuned Sam-Med2D with no prompt:
+Test Loss: 0.3376 - Jaccard: 0.7823 - Dice (F1): 0.8228 - Recall: 0.7960 - Precision: 0.9815
+
 Pretrained Sam-Med2D with gt masks:
 Test Loss: 1.8329 - Jaccard: 0.2326 - Dice (F1): 0.2894 - Recall: 0.8110 - Precision: 0.3994
 
 Pretrained Sam-Med2D with tresunet predicted masks:
 Test Loss: 1.8803 - Jaccard: 0.2276 - Dice (F1): 0.2815 - Recall: 0.8076 - Precision: 0.3714
 
+Pretrained Sam-Med2D with box as whole image:
+Test Loss: 2.7192 - Jaccard: 0.0139 - Dice (F1): 0.0252 - Recall: 0.6408 - Precision: 0.0177
+
+Pretrained Sam-Med2D with no prompt:
+Test Loss: 1.2149 - Jaccard: 0.0256 - Dice (F1): 0.0410 - Recall: 0.5911 - Precision: 0.1810
+
+
+Used fractions instead of absolute values for coarse dropout augmentation in training
+
+Fine-tuned Sam-Med2D with gt masks:
+Test Loss: 0.0874 - Jaccard: 0.9164 - Dice (F1): 0.9467 - Recall: 0.9463 - Precision: 0.9605
+
+Fine-tuned Sam-Med2D with tresunet predicted masks:
+Test Loss: 0.1968 - Jaccard: 0.8686 - Dice (F1): 0.8986 - Recall: 0.9279 - Precision: 0.9333
+
+Fine-tuned Sam-Med2D with box as whole image:
+Test Loss: 1.5648 - Jaccard: 0.5651 - Dice (F1): 0.5651 - Recall: 0.5651 - Precision: 1.0000
+
+Fine-tuned Sam-Med2D with no prompt:
+Test Loss: 0.3410 - Jaccard: 0.7930 - Dice (F1): 0.8262 - Recall: 0.8255 - Precision: 0.9597
+
+Pretrained Sam-Med2D with gt masks:
+Test Loss: 1.8336 - Jaccard: 0.2329 - Dice (F1): 0.2896 - Recall: 0.8110 - Precision: 0.3985
+
+Pretrained Sam-Med2D with tresunet predicted masks:
+Test Loss: 1.8590 - Jaccard: 0.2326 - Dice (F1): 0.2873 - Recall: 0.8067 - Precision: 0.3819
