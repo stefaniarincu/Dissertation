@@ -29,11 +29,11 @@ HYPERPARAMETERS = {
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'bmshare' # 'bmshare', 'brats'
+DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/sam_med2d/fract/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/sam_med2d/resize2/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -134,9 +134,9 @@ if __name__ == '__main__':
         A.Rotate(limit=35, p=0.3),
         A.HorizontalFlip(p=0.3),
         A.VerticalFlip(p=0.3),
-        #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
+        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
         # Use floating point values for width and height ranges, which will be translated to fractions of the image dimenstions (1, 32)
-        A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1/HYPERPARAMETERS['image_size'][0], 32/HYPERPARAMETERS['image_size'][0]), hole_width_range=(1/HYPERPARAMETERS['image_size'][1], 32/HYPERPARAMETERS['image_size'][1]))
+        #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1/HYPERPARAMETERS['image_size'][0], 32/HYPERPARAMETERS['image_size'][0]), hole_width_range=(1/HYPERPARAMETERS['image_size'][1], 32/HYPERPARAMETERS['image_size'][1]))
     ])
 
     # Create datasets for training and validation

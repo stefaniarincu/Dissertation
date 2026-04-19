@@ -1,0 +1,18 @@
+
+2026-04-19 07:06:46.706844
+Train set size: 14400
+Validation set size: 1894
+Test set size: 1895
+
+Fine-tuned Sam-Med2D with gt masks:
+Test Loss: 0.2009 - Jaccard: 0.9071 - Dice (F1): 0.9375 - Recall: 0.9396 - Precision: 0.9435
+
+Fine-tuned Sam-Med2D with tresunet predicted masks:
+Test Loss: 0.3479 - Jaccard: 0.8393 - Dice (F1): 0.8607 - Recall: 0.8829 - Precision: 0.9364
+
+Pretrained Sam-Med2D with gt masks:
+Test Loss: 2.0587 - Jaccard: 0.0609 - Dice (F1): 0.0812 - Recall: 0.8164 - Precision: 0.2177
+
+Pretrained Sam-Med2D with tresunet predicted masks:
+Test Loss: 2.1137 - Jaccard: 0.0621 - Dice (F1): 0.0794 - Recall: 0.8230 - Precision: 0.1665
+
