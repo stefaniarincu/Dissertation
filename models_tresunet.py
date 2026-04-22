@@ -494,9 +494,9 @@ class TResUnetFusedModel(nn.Module):
         self.dataset_specific_models = nn.ModuleList(dataset_specific_models)
 
         # Cross-attention blocks for each encoder level
-        self.cross_attn_s1 = CrossAttentionBlock(64)
+        '''self.cross_attn_s1 = CrossAttentionBlock(64)
         self.cross_attn_s2 = CrossAttentionBlock(256)
-        self.cross_attn_s3 = CrossAttentionBlock(512)
+        self.cross_attn_s3 = CrossAttentionBlock(512)'''
 
         # Convolutional blocks for combined encoder outputs 
         # s1 = 64, s2 = 256, s3 = 512, bottleneck = 512 (multiply for concatenation)
@@ -533,14 +533,14 @@ class TResUnetFusedModel(nn.Module):
         # biased weights = > 0.5 for the dataset specific model corresponding to the dataset and 0.25 for the others
         elif weighting_mode == 2:
             if num_dataset_specific_models == 2:
-                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
-                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.75)
+                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25 * num_dataset_specific_models, device=dataset_ids.device, dtype=torch.float32)
+                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.75 * num_dataset_specific_models)
             elif num_dataset_specific_models == 3:
-                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25, device=dataset_ids.device, dtype=torch.float32)
-                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.5)
+                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.25 * num_dataset_specific_models, device=dataset_ids.device, dtype=torch.float32)
+                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.5 * num_dataset_specific_models)
             elif num_dataset_specific_models == 4:
-                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.2, device=dataset_ids.device, dtype=torch.float32)
-                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.4)
+                weights = torch.full((dataset_ids.shape[0], num_dataset_specific_models), 0.15 * num_dataset_specific_models, device=dataset_ids.device, dtype=torch.float32)
+                return weights.scatter_(1, dataset_ids.view(-1, 1), 0.55 * num_dataset_specific_models)
 
     def forward(self, x, dataset_ids=None, weighting_mode=None, return_features=False, return_features_unet=False):
         num_dataset_specific_models = len(self.dataset_specific_models)
@@ -550,10 +550,7 @@ class TResUnetFusedModel(nn.Module):
             all_features = [model.encode(x) for model in self.dataset_specific_models]
 
         # Cross-attention on encoder outputs
-        '''all_features[0][0] = sum(self.cross_attn_s1(all_features[0][0], all_features[i][0]) for i in range(1, num_dataset_specific_models))
-        all_features[0][1] = sum(self.cross_attn_s2(all_features[0][1], all_features[i][1]) for i in range(1, num_dataset_specific_models))
-        all_features[0][2] = sum(self.cross_attn_s3(all_features[0][2], all_features[i][2]) for i in range(1, num_dataset_specific_models))'''
-        cross_attn_s1 = self.cross_attn_s1(all_features[0][0], all_features[1][0])
+        '''cross_attn_s1 = self.cross_attn_s1(all_features[0][0], all_features[1][0])
         cross_attn_s2 = self.cross_attn_s2(all_features[0][1], all_features[1][1])
         cross_attn_s3 = self.cross_attn_s3(all_features[0][2], all_features[1][2])
 
@@ -564,7 +561,7 @@ class TResUnetFusedModel(nn.Module):
 
         all_features[0][0] = cross_attn_s1
         all_features[0][1] = cross_attn_s2
-        all_features[0][2] = cross_attn_s3
+        all_features[0][2] = cross_attn_s3'''
 
         if weighting_mode is not None and dataset_ids is not None:
             weights = self.compute_dataset_specific_weights(dataset_ids, weighting_mode, num_dataset_specific_models)
