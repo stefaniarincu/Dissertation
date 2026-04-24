@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import albumentations as A
 from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, create_optimizer, log_results_train_val, log_results_test
-from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler
+from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler, BalancedBatchSamplerWithCustomComposition
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet, TResUnetFusedModel
 
@@ -20,7 +20,8 @@ HYPERPARAMETERS = {
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
     # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biased towards own dataset expert and None if no weighted mode wanted
-    'dsm_weighting_mode': 2,
+    'dsm_weighting_mode': None,
+    'batch_composition': {0: 4, 1: 4, 2: 8}
 }
 
 # Dictionary that maps dataset names to an id
@@ -39,7 +40,7 @@ DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/biased_no_cross_attention_10K_samples_3ds_new_dropout'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_all_samples_3ds_new_dropout'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_fused.txt'
@@ -55,14 +56,14 @@ def train_step(model, dataloader, optimizer, criterion, weighting_mode, device):
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
     processed_samples = 0
 
-    for batched_images, batched_masks, batched_dataset_ids in dataloader:#batched_dataset_ids in dataloader:
+    for batched_images, batched_masks, _ in dataloader:#batched_dataset_ids in dataloader:
         batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
         batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
-        batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
+        #batched_dataset_ids = batched_dataset_ids.to(device, non_blocking=True, dtype=torch.long)
 
         optimizer.zero_grad()
 
-        y_pred = model(batched_images, dataset_ids=batched_dataset_ids, weighting_mode=weighting_mode)
+        y_pred = model(batched_images, dataset_ids=None, weighting_mode=weighting_mode)
         loss = criterion(y_pred, batched_masks)
 
         loss.backward()
@@ -108,9 +109,10 @@ if __name__ == '__main__':
     log_hyperparameters(TRAIN_LOG_PATH, HYPERPARAMETERS)
 
     # Load the images and masks file names for training and validation
-    train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'train.txt', num_train_samples_per_dataset=10000)
-    validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'val.txt', num_val_samples_per_dataset=1300)
+    train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'train.txt', num_train_samples_per_dataset=None)
+    validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'val.txt', num_val_samples_per_dataset=None)
     train_images_paths, train_masks_paths, train_dataset_ids = shuffle_data((train_images_paths, train_masks_paths, train_dataset_ids), SEED)
+    validation_images_paths, validation_masks_paths, validation_dataset_ids = shuffle_data((validation_images_paths, validation_masks_paths, validation_dataset_ids), SEED)
     dataset_log_text = f'Train set size: {len(train_images_paths)}\nValidation set size: {len(validation_images_paths)}\n'
     print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
@@ -129,12 +131,14 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDatasetWithDatasetId(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
     
     # Create balanced batch samplers for training and validation
-    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=True, allow_incomplete_last_batch=True)
-    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=False, allow_incomplete_last_batch=True)
+    #train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=True, allow_incomplete_last_batch=True)
+    #validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=False, allow_incomplete_last_batch=True)
+    train_sampler = BalancedBatchSamplerWithCustomComposition(train_dataset.dataset_ids, seed=SEED, batch_composition=HYPERPARAMETERS['batch_composition'])
 
     # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
+    #validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}

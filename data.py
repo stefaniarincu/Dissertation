@@ -29,7 +29,13 @@ def load_split_data_all_datasets(datasets_paths, split_filename, num_train_sampl
         images_by_dataset_id[dataset_id] = images_paths
         masks_by_dataset_id[dataset_id] = masks_paths
 
-    # Take the number of required samples from each dataset if specified, otherwise take the minimum number of samples available across all datasets 
+    all_images, all_masks, all_dataset_ids = [], [], []
+    for dataset_id in images_by_dataset_id.keys():
+        all_images.extend(images_by_dataset_id[dataset_id])
+        all_masks.extend(masks_by_dataset_id[dataset_id])
+        all_dataset_ids.extend([dataset_id] * len(images_by_dataset_id[dataset_id]))
+
+    '''# Take the number of required samples from each dataset if specified, otherwise take the minimum number of samples available across all datasets 
     if split_filename == 'train.txt':
         if num_train_samples_per_dataset is not None:
             min_size = num_train_samples_per_dataset
@@ -45,7 +51,7 @@ def load_split_data_all_datasets(datasets_paths, split_filename, num_train_sampl
     for dataset_id in images_by_dataset_id.keys():
         all_images.extend(images_by_dataset_id[dataset_id][:min_size])
         all_masks.extend(masks_by_dataset_id[dataset_id][:min_size])
-        all_dataset_ids.extend([dataset_id] * min_size)
+        all_dataset_ids.extend([dataset_id] * min_size)'''
     
     return all_images, all_masks, all_dataset_ids
 
@@ -99,6 +105,10 @@ class BaseSegmentationDataset(Dataset):
 
         '''if image.shape[0] < 256 or image.shape[1] < 256:
             image, mask = pad_black_to_256(image, mask)'''
+        
+        '''if image.shape[0] != 256 or  image.shape[1] != 256:
+            image = cv.resize(image, self.image_size, interpolation=cv.INTER_LINEAR)
+            mask = cv.resize(mask, self.image_size, interpolation=cv.INTER_NEAREST)'''
 
         if self.transform is not None:
             augmentations = self.transform(image=image, mask=mask)
@@ -243,4 +253,58 @@ class BalancedBatchSampler(Sampler):
             if self.shuffle:
                 random_generator.shuffle(batch)
 
+            yield batch
+
+class BalancedBatchSamplerWithCustomComposition(Sampler):
+    def __init__(self, dataset_ids, seed, batch_composition={0: 4, 1: 4, 2: 8}):
+        super().__init__()
+
+        self.dataset_ids = np.array(dataset_ids, dtype=np.int64)
+        self.batch_composition = batch_composition
+        self.epoch = 0
+        self.seed = seed
+
+        self.ids_indices = {dataset_id: np.where(self.dataset_ids == dataset_id)[0] for dataset_id in self.batch_composition.keys()}
+
+        batches_per_dataset = []
+        for dataset_id in self.batch_composition.keys():
+            num_samples = len(self.ids_indices[dataset_id])
+            num_batches = int(np.ceil(num_samples / self.batch_composition[dataset_id]))
+            batches_per_dataset.append(num_batches)
+
+        self.num_batches = max(batches_per_dataset)
+
+    def set_epoch(self, param_epoch):
+        self.epoch = param_epoch
+
+    def __len__(self):
+        return self.num_batches
+    
+    def __iter__(self):
+        random_generator = random.Random(self.seed + self.epoch)
+        
+        shuffled_indices, current_indices = {}, {}
+        for dataset_id in self.batch_composition.keys():
+            dataset_indices = self.ids_indices[dataset_id].copy()
+            random_generator.shuffle(dataset_indices)
+            shuffled_indices[dataset_id] = dataset_indices
+            current_indices[dataset_id] = 0
+
+        for _ in range(self.num_batches):
+            batch = []
+
+            for dataset_id, num_samples_per_batch in self.batch_composition.items():
+                start_idx = current_indices[dataset_id]
+                end_idx = start_idx + num_samples_per_batch
+
+                if end_idx > len(shuffled_indices[dataset_id]):
+                    random_generator.shuffle(shuffled_indices[dataset_id])
+                    current_indices[dataset_id] = 0
+                    start_idx = 0
+                    end_idx = num_samples_per_batch
+
+                batch.extend(shuffled_indices[dataset_id][start_idx:end_idx])
+                current_indices[dataset_id] = end_idx
+
+            random_generator.shuffle(batch)
             yield batch
