@@ -14,7 +14,7 @@ from model_unet import UNet
 SEED = 42
 DEVICE = torch.device('cuda')
 
-# Constant for hyperparameters (moved here for claity and easy modification)
+# Constant for hyperparameters (moved here for clarity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
@@ -153,8 +153,8 @@ def train_step(teacher_model, student_model, dataloader, optimizer, criterion, d
 
 
 # Validation monitors segmentation performance only, without feature alignment loss
-def evaluate_step(model, dataloader, criterion, device):
-    model.eval()
+def evaluate_step(student_model, dataloader, criterion, device):
+    student_model.eval()
 
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
@@ -164,7 +164,7 @@ def evaluate_step(model, dataloader, criterion, device):
             batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
-            y_pred = model(batched_images)
+            y_pred = student_model(batched_images)
             segmentation_loss = criterion(y_pred, batched_masks)
 
             epoch_loss += segmentation_loss.item() * batched_images.size(0)
@@ -200,8 +200,8 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
 
     # Create dataloaders for training and validation datasets
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}

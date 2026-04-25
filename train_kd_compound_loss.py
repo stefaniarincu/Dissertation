@@ -13,7 +13,7 @@ from models_tresunet import TResUnet, TResUnetFusedModel
 SEED = 42
 DEVICE = torch.device('cuda')
 
-# Constant for hyperparameters (moved here for claity and easy modification)
+# Constant for hyperparameters (moved here for clarity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
@@ -31,7 +31,8 @@ HYPERPARAMETERS = {
 
 
 # Dictionary that maps dataset names to an id
-IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats', 3: 'brats_ped'}
+#IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats', 3: 'brats_ped'}
+IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
@@ -41,30 +42,19 @@ DATASET_NAME = 'isles' # 'bmshare', 'brats', 'brats_ped'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_4ds_resize/fused_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_all_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_no_cross_attention_10K_samples_4ds_resize/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_no_cross_attention_all_samples_3ds_new_dropout/v2/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
-
-# Feature Aligner: Projects generic model features into the dimensions of fused dataset-specific models features
-'''class FeatureAligner(nn.Module):
-    def __init__(self, student_dims, teacher_dims):
-        super().__init__()
-        self.projections = nn.ModuleList([
-            nn.Conv2d(teacher_dim, student_dim, kernel_size=1) for student_dim, teacher_dim in zip(student_dims, teacher_dims)
-        ])
-
-    def forward(self, teacher_features):
-        return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]'''
 
 # Function that flattens features for contrastive loss
 def flatten_features(features):
@@ -107,7 +97,7 @@ def cosine_similarity_loss(student_features, teacher_features):
     ]
     aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
 
-    return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, teacher_features)) / len(student_features)
+    return sum(1 - F.cosine_similarity(student_feature, teacher_feature, dim=1).mean() for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(student_features)
 
 # Function for dynamic curriculum for scheduling KD losses
 def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
@@ -164,8 +154,8 @@ def train_step(teacher_model, student_model, dataloader, optimizer, criterion, d
 
 
 # Validation monitors segmentation performance only, without feature alignment loss
-def evaluate_step(model, dataloader, criterion, device):
-    model.eval()
+def evaluate_step(student_model, dataloader, criterion, device):
+    student_model.eval()
 
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
@@ -175,7 +165,7 @@ def evaluate_step(model, dataloader, criterion, device):
             batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
-            y_pred = model(batched_images)
+            y_pred = student_model(batched_images)
             segmentation_loss = criterion(y_pred, batched_masks)
 
             epoch_loss += segmentation_loss.item() * batched_images.size(0)
@@ -211,8 +201,8 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
 
     # Create dataloaders for training and validation datasets
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
@@ -230,8 +220,8 @@ if __name__ == '__main__':
     #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
 
     # Create model, optimizer, scheduler, and criterion
-    model = TResUnet().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
+    student_model = TResUnet().to(DEVICE)
+    optimizer = torch.optim.Adam(student_model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'])
     criterion = DiceBCELoss()
@@ -248,8 +238,8 @@ if __name__ == '__main__':
         contrastive_weight = min(HYPERPARAMETERS['max_contrastive_weight'], HYPERPARAMETERS['initial_contrastive_weight'] + epoch * HYPERPARAMETERS['weight_increment'])
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(teacher_model, model, train_dataloader, optimizer, criterion, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
-        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
+        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, criterion, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
+        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, criterion, DEVICE)
         #scheduler.step(validation_loss)
         scheduler.step()
 
@@ -259,7 +249,7 @@ if __name__ == '__main__':
             print_and_save(TRAIN_LOG_PATH, data_str)
 
             best_validation_metric = validation_metrics[1]
-            torch.save(model.state_dict(), CHECKPOINT_PATH)
+            torch.save(student_model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
         else:
             num_epochs_no_improvement += 1
@@ -276,7 +266,7 @@ if __name__ == '__main__':
     # Create the test log file
     create_log_file(TEST_LOG_PATH)
     # Load best model and check its performance
-    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
+    student_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
 
     # Load the images and masks file names for the test split
     test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
@@ -288,5 +278,5 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
 
     # Test the model
-    test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
+    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, criterion, DEVICE)
     log_results_test(TEST_LOG_PATH, test_loss, test_metrics)

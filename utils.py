@@ -143,9 +143,14 @@ def create_optimizer(model, learning_rate):
 ''' ===================================== LOAD DATASET-SPECIFIC MODELS  ===================================== '''
 
 # Function that loads dataset specific models from specified checkpoints and returns them
-def load_dataset_specific_models(checkpoint_paths_by_dataset_id, models_by_dataset_id, device):
+def load_dataset_specific_models(checkpoint_paths_by_dataset_id, models_by_dataset_id, device, load_into_submodule=None):
     for dataset_id, checkpoint_path in checkpoint_paths_by_dataset_id.items():
-        models_by_dataset_id[dataset_id].load_state_dict(torch.load(checkpoint_path, map_location=device))
+        state_dict = torch.load(checkpoint_path, map_location=device)
+
+        if load_into_submodule is None:
+            models_by_dataset_id[dataset_id].load_state_dict(state_dict)
+        else:
+            getattr(models_by_dataset_id[dataset_id], load_into_submodule).load_state_dict(state_dict)
 
         models_by_dataset_id[dataset_id] = freeze_model_parameters(models_by_dataset_id[dataset_id])
         

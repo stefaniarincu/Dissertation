@@ -29,13 +29,13 @@ def load_split_data_all_datasets(datasets_paths, split_filename, num_train_sampl
         images_by_dataset_id[dataset_id] = images_paths
         masks_by_dataset_id[dataset_id] = masks_paths
 
-    all_images, all_masks, all_dataset_ids = [], [], []
+    '''all_images, all_masks, all_dataset_ids = [], [], []
     for dataset_id in images_by_dataset_id.keys():
         all_images.extend(images_by_dataset_id[dataset_id])
         all_masks.extend(masks_by_dataset_id[dataset_id])
-        all_dataset_ids.extend([dataset_id] * len(images_by_dataset_id[dataset_id]))
+        all_dataset_ids.extend([dataset_id] * len(images_by_dataset_id[dataset_id]))'''
 
-    '''# Take the number of required samples from each dataset if specified, otherwise take the minimum number of samples available across all datasets 
+    # Take the number of required samples from each dataset if specified, otherwise take the minimum number of samples available across all datasets 
     if split_filename == 'train.txt':
         if num_train_samples_per_dataset is not None:
             min_size = num_train_samples_per_dataset
@@ -51,7 +51,7 @@ def load_split_data_all_datasets(datasets_paths, split_filename, num_train_sampl
     for dataset_id in images_by_dataset_id.keys():
         all_images.extend(images_by_dataset_id[dataset_id][:min_size])
         all_masks.extend(masks_by_dataset_id[dataset_id][:min_size])
-        all_dataset_ids.extend([dataset_id] * min_size)'''
+        all_dataset_ids.extend([dataset_id] * min_size)
     
     return all_images, all_masks, all_dataset_ids
 

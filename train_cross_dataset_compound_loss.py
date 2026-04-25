@@ -12,7 +12,7 @@ from models_tresunet import TResUnet
 SEED = 42
 DEVICE = torch.device('cuda')
 
-# Constant for hyperparameters (moved here for claity and easy modification)
+# Constant for hyperparameters (moved here for clarity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,

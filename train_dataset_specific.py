@@ -13,7 +13,7 @@ from model_segformer import Segformer
 SEED = 42
 DEVICE = torch.device('cuda')
 
-# Constant for hyperparameters (moved here for claity and easy modification)
+# Constant for hyperparameters (moved here for clarity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
@@ -28,7 +28,7 @@ HYPERPARAMETERS = {
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'isles', 'bmshare', 'brats', 'brats_ped'
+DATASET_NAME = 'brats' # 'isles', 'bmshare', 'brats', 'brats_ped'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path

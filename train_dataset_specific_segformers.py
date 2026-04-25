@@ -12,7 +12,7 @@ from metrics import DiceBCELoss, update_metrics, compute_final_results
 SEED = 42
 DEVICE = torch.device('cuda')
 
-# Constant for hyperparameters (moved here for claity and easy modification)
+# Constant for hyperparameters (moved here for clarity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
@@ -20,7 +20,7 @@ HYPERPARAMETERS = {
     'init_learning_rate': 3e-5,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
-    'segformer_model_name': 'nvidia/mit-b2' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
+    'segformer_model_name': 'nvidia/mit-b1' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
 }
 
 # Constant for the root path for all necessary files
@@ -31,7 +31,7 @@ DATASET_NAME = 'isles' # 'bmshare', 'brats', 'brats_ped'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/segformers/mit-b2/v2/{DATASET_NAME}2'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/segformers/mit-b1/v7/{DATASET_NAME}2'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'

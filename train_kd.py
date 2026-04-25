@@ -12,7 +12,7 @@ from models_tresunet import TResUnet, TResUnetFusedModel
 SEED = 42
 DEVICE = torch.device('cuda')
 
-# Constant for hyperparameters (moved here for claity and easy modification)
+# Constant for hyperparameters (moved here for clarity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
@@ -75,8 +75,8 @@ def compute_feature_alignment_loss(student_features, teacher_features):
 
 
 # Training uses both segmentation loss and feature alignment loss (mse)
-def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
-    model.train()
+def train_step(student_model, dataloader, optimizer, criterion, teacher_model, device):
+    student_model.train()
     teacher_model.eval()
     
     epoch_loss = 0.0
@@ -92,7 +92,7 @@ def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
         with torch.no_grad():
             _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
         
-        y_pred, student_features = model(batched_images, return_features=True)
+        y_pred, student_features = student_model(batched_images, return_features=True)
         segmentation_loss = criterion(y_pred, batched_masks)
         feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
 
@@ -111,8 +111,8 @@ def train_step(model, dataloader, optimizer, criterion, teacher_model, device):
 
 
 # Validation monitors segmentation performance only, without feature alignment loss
-def evaluate_step(model, dataloader, criterion, device):
-    model.eval()
+def evaluate_step(student_model, dataloader, criterion, device):
+    student_model.eval()
 
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
@@ -122,7 +122,7 @@ def evaluate_step(model, dataloader, criterion, device):
             batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
-            y_pred = model(batched_images)
+            y_pred = student_model(batched_images)
             segmentation_loss = criterion(y_pred, batched_masks)
 
             epoch_loss += segmentation_loss.item() * batched_images.size(0)
@@ -158,8 +158,8 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDataset(validation_images_paths, validation_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
 
     # Create dataloaders for training and validation datasets
-    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], num_workers=2, pin_memory=True, persistent_workers=True)
+    train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
@@ -177,8 +177,8 @@ if __name__ == '__main__':
     #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
 
     # Create model, optimizer, scheduler, and criterion
-    model = TResUnet().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
+    student_model = TResUnet().to(DEVICE)
+    optimizer = torch.optim.Adam(student_model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
 
@@ -190,8 +190,8 @@ if __name__ == '__main__':
         start_time = time.time()
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, teacher_model, DEVICE)
-        validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
+        train_loss, train_metrics = train_step(student_model, train_dataloader, optimizer, criterion, teacher_model, DEVICE)
+        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
 
         # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
@@ -200,7 +200,7 @@ if __name__ == '__main__':
             print_and_save(TRAIN_LOG_PATH, data_str)
 
             best_validation_metric = validation_metrics[1]
-            torch.save(model.state_dict(), CHECKPOINT_PATH)
+            torch.save(student_model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
         else:
             num_epochs_no_improvement += 1
@@ -217,7 +217,7 @@ if __name__ == '__main__':
     # Create the test log file
     create_log_file(TEST_LOG_PATH)
     # Load best model and check its performance
-    model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
+    student_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
 
     # Load the images and masks file names for the test split
     test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
@@ -229,5 +229,5 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
 
     # Test the model
-    test_loss, test_metrics = evaluate_step(model, test_dataloader, criterion, DEVICE)
+    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, criterion, DEVICE)
     log_results_test(TEST_LOG_PATH, test_loss, test_metrics)

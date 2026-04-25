@@ -1,15 +1,15 @@
 import os
 import time
 import torch
-from torch import nn
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from torch import nn
 import albumentations as A
 from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet, TResUnetFusedModel
-#from fused_new_weighting import TResUnetFusedModel
+from model_segformer import Segformer, SegformerFeatureAdapter
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -19,7 +19,7 @@ HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
     'num_epochs': 100,
-    'init_learning_rate': 0.0001,
+    'init_learning_rate': 3e-5,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
     'alpha': 0.5,
@@ -27,7 +27,8 @@ HYPERPARAMETERS = {
     'initial_contrastive_weight': 0.1,
     'max_contrastive_weight': 0.5,
     'weight_increment': 0.01,
-    'map_loss_weight': 0.3
+    'map_loss_weight': 0.3,
+    'segformer_model_name': 'nvidia/mit-b2' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
 }
 
 
@@ -42,30 +43,19 @@ DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/segformers/b2'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples/fused_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/from_segformers_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_no_cross_attention_10K_samples_projector/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_from_segformers_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
-
-# Feature Aligner: Projects generic model features into the dimensions of fused dataset-specific models features
-'''class FeatureAligner(nn.Module):
-    def __init__(self, student_dims, teacher_dims):
-        super().__init__()
-        self.projections = nn.ModuleList([
-            nn.Conv2d(teacher_dim, student_dim, kernel_size=1) for student_dim, teacher_dim in zip(student_dims, teacher_dims)
-        ])
-
-    def forward(self, teacher_features):
-        return [proj(teacher_feature) for proj, teacher_feature in zip(self.projections, teacher_features)]'''
 
 # Function that flattens features for contrastive loss
 def flatten_features(features):
@@ -85,30 +75,16 @@ def contrastive_loss(student_features, teacher_features, temperature=0.5):
     return F.kl_div(similarity_student.log(), similarity_teacher, reduction='batchmean')
 
 # Function that computes the feature alignment loss by calculating the MSE between the student and teacher features
-def compute_feature_alignment_loss(student_features, teacher_features, device):
+def compute_feature_alignment_loss(student_features, teacher_features):
     '''for student_feature in student_features:
         print(student_feature.shape)
     for teacher_feature in teacher_features:
         print(teacher_feature.shape)'''
-
-    aligners = [
-        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
-        for i in range(len(student_features))
-    ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]
-
-    return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
+    return sum(F.mse_loss(student_feature, teacher_feature.detach()) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(student_features)
 
 # Function that computes the cosine similarity between the student and teacher features
-def cosine_similarity_loss(student_features, teacher_features, device):
-    aligners = [
-        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(
-            device)
-        for i in range(len(student_features))
-    ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]
-
-    return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, teacher_features)) / len(student_features)
+def cosine_similarity_loss(student_features, teacher_features):
+    return sum(1 - F.cosine_similarity(student_feature, teacher_feature.detach(), dim=1).mean() for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(student_features)
 
 # Function for dynamic curriculum for scheduling KD losses
 def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
@@ -121,10 +97,11 @@ def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
 
 
 # Training uses both segmentation loss and feature alignment loss (mse, cosine similarity and contrastive loss), with dynamic curriculum scheduling for KD
-def train_step(teacher_model, student_model, dataloader, optimizer, criterion, device, 
+def train_step(teacher_model, student_model, dataloader, optimizer, criterion, aligner, device, 
                epoch, alpha=0.5, temperature=2.0, contrastive_weight=0.5, map_loss_weight=0.3):
     teacher_model.eval()
     student_model.train()
+    aligner.train()
     
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
@@ -141,11 +118,13 @@ def train_step(teacher_model, student_model, dataloader, optimizer, criterion, d
         with torch.no_grad():
             _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
         
-        student_output, student_features = student_model(batched_images, return_features=True)
+        student_output, not_aligned_student_features = student_model(batched_images, return_features=True)
+        student_features = aligner(batched_images, not_aligned_student_features)
         segmentation_loss = criterion(student_output, batched_masks)
+        
         kd_contrastive_loss = contrastive_loss(student_features, teacher_features, temperature=temperature)
-        feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features, device)
-        similarity_loss = cosine_similarity_loss(student_features, teacher_features, device)
+        feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
+        similarity_loss = cosine_similarity_loss(student_features, teacher_features)
 
         # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
         total_loss = (alpha * segmentation_loss +
@@ -216,23 +195,24 @@ if __name__ == '__main__':
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
-    dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    dataset_specific_models = {dataset_id: Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
 
-    # Load the fused model checkpoint and create the teacher model for knowledge distillation    
-    teacher_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
+    # Create model, optimizer, scheduler, and criterion
+    teacher_model = TResUnetFusedModel(list(dataset_specific_models.values()), use_segformers=True).to(DEVICE)
     teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
     '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False )
     print(incompatible.missing_keys)
     print(incompatible.unexpected_keys)'''
     teacher_model = freeze_model_parameters(teacher_model)
 
-    # Feature aligner
-    #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
+    # Create model, optimizer, scheduler and criterion
+    student_model = Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE)
 
-    # Create model, optimizer, scheduler, and criterion
-    student_model = TResUnet().to(DEVICE)
-    optimizer = torch.optim.Adam(student_model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
+    # Feature aligner to adapt student features to teacher features for the feature alignment loss
+    aligner = SegformerFeatureAdapter(student_model.out_channels).to(DEVICE)
+
+    optimizer = torch.optim.Adam(list(student_model.parameters()) + list(aligner.parameters()), lr=HYPERPARAMETERS['init_learning_rate'])
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'])
     criterion = DiceBCELoss()
@@ -249,7 +229,7 @@ if __name__ == '__main__':
         contrastive_weight = min(HYPERPARAMETERS['max_contrastive_weight'], HYPERPARAMETERS['initial_contrastive_weight'] + epoch * HYPERPARAMETERS['weight_increment'])
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, criterion, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
+        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, criterion, aligner, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], temperature=temperature, contrastive_weight=contrastive_weight, map_loss_weight=HYPERPARAMETERS['map_loss_weight'])
         validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, criterion, DEVICE)
         #scheduler.step(validation_loss)
         scheduler.step()
@@ -260,7 +240,7 @@ if __name__ == '__main__':
             print_and_save(TRAIN_LOG_PATH, data_str)
 
             best_validation_metric = validation_metrics[1]
-            torch.save(student_model.state_dict(), CHECKPOINT_PATH)
+            torch.save({'student_model': student_model.state_dict(), 'aligner': aligner.state_dict()}, CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
         else:
             num_epochs_no_improvement += 1
@@ -277,7 +257,9 @@ if __name__ == '__main__':
     # Create the test log file
     create_log_file(TEST_LOG_PATH)
     # Load best model and check its performance
-    student_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
+    checkpoint = torch.load(CHECKPOINT_PATH, map_location=DEVICE)
+    student_model.load_state_dict(checkpoint['student_model'])
+    aligner.load_state_dict(checkpoint['aligner'])
 
     # Load the images and masks file names for the test split
     test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
