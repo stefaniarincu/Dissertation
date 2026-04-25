@@ -8,6 +8,7 @@ from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet
 from model_unet import UNet
+from model_segformer import Segformer
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -17,20 +18,21 @@ HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
     'num_epochs': 300,
-    'init_learning_rate': 0.0001,
+    'init_learning_rate': 3e-5,#0.0001,
     'scheduler_patience': 5,
-    'early_stopping_patience': 20
+    'early_stopping_patience': 20,
+    'segformer_model_name': 'nvidia/mit-b2' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
 }
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'brats_ped' # 'bmshare', 'brats'
+DATASET_NAME = 'isles' # 'isles', 'bmshare', 'brats', 'brats_ped'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/segformers/b2/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -119,8 +121,10 @@ if __name__ == '__main__':
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)#, worker_init_fn=seed_worker)
 
     # Create model, optimizer, scheduler and criterion
-    model = TResUnet().to(DEVICE)
+    #model = TResUnet().to(DEVICE)
     #model = UNet(3, 1, True).to(DEVICE)
+    model = Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name']).to(DEVICE)
+    print(model.out_channels)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()

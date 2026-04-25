@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 from torch.nn import functional as F
+from model_segformer import SegformerFeatureAdapter
 
 
 ''' ============================================ ResNet BACKBONE ============================================ '''
@@ -486,13 +487,20 @@ class CrossAttentionBlock(nn.Module):
         return x1 + self.alpha * attn_output  # Learnable weight to adjust influence
 
 class TResUnetFusedModel(nn.Module):
-    def __init__(self, dataset_specific_models):
+    def __init__(self, dataset_specific_models, use_segformers=False):
         super().__init__()
         num_dataset_specific_models = len(dataset_specific_models)
 
         # Use ModuleList to store the dataset specific models
         self.dataset_specific_models = nn.ModuleList(dataset_specific_models)
 
+        # Set flag if using Segformers to add additional projection layers for feature alignment
+        self.use_segformers = use_segformers
+        if self.use_segformers:
+            self.feature_adapters = nn.ModuleList([
+                SegformerFeatureAdapter(model.out_channels) for model in dataset_specific_models
+            ])
+        
         # Cross-attention blocks for each encoder level
         '''self.cross_attn_s1 = CrossAttentionBlock(64)
         self.cross_attn_s2 = CrossAttentionBlock(256)
@@ -548,6 +556,9 @@ class TResUnetFusedModel(nn.Module):
         with torch.no_grad():
             # Encode features from each dataset specific model
             all_features = [model.encode(x) for model in self.dataset_specific_models]
+
+        if self.use_segformers:
+            all_features = [self.feature_adapters[i](x, all_features[i]) for i in range(num_dataset_specific_models)]
 
         # Cross-attention on encoder outputs
         '''cross_attn_s1 = self.cross_attn_s1(all_features[0][0], all_features[1][0])

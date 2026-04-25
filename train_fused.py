@@ -7,6 +7,7 @@ from utils import seed_all, create_log_file, print_and_save, log_hyperparameters
 from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler, BalancedBatchSamplerWithCustomComposition
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet, TResUnetFusedModel
+from model_segformer import Segformer
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -21,7 +22,8 @@ HYPERPARAMETERS = {
     'early_stopping_patience': 20,
     # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biased towards own dataset expert and None if no weighted mode wanted
     'dsm_weighting_mode': None,
-    'batch_composition': {0: 4, 1: 4, 2: 8}
+    #'batch_composition': {0: 4, 1: 4, 2: 8}
+    'segformer_model_name': 'nvidia/mit-b1' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
 }
 
 # Dictionary that maps dataset names to an id
@@ -36,11 +38,11 @@ DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract/'#segformers/mit-b1/v2'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_all_samples_3ds_new_dropout'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/from_segformers_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_fused.txt'
@@ -109,10 +111,10 @@ if __name__ == '__main__':
     log_hyperparameters(TRAIN_LOG_PATH, HYPERPARAMETERS)
 
     # Load the images and masks file names for training and validation
-    train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'train.txt', num_train_samples_per_dataset=None)
-    validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'val.txt', num_val_samples_per_dataset=None)
+    train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'train.txt', num_train_samples_per_dataset=10000)
+    validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'val.txt', num_val_samples_per_dataset=1300)
     train_images_paths, train_masks_paths, train_dataset_ids = shuffle_data((train_images_paths, train_masks_paths, train_dataset_ids), SEED)
-    validation_images_paths, validation_masks_paths, validation_dataset_ids = shuffle_data((validation_images_paths, validation_masks_paths, validation_dataset_ids), SEED)
+    #validation_images_paths, validation_masks_paths, validation_dataset_ids = shuffle_data((validation_images_paths, validation_masks_paths, validation_dataset_ids), SEED)
     dataset_log_text = f'Train set size: {len(train_images_paths)}\nValidation set size: {len(validation_images_paths)}\n'
     print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
@@ -131,21 +133,23 @@ if __name__ == '__main__':
     validation_dataset = SegmentationDatasetWithDatasetId(validation_images_paths, validation_masks_paths, validation_dataset_ids, HYPERPARAMETERS['image_size'], transform=None)
     
     # Create balanced batch samplers for training and validation
-    #train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=True, allow_incomplete_last_batch=True)
-    #validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=False, allow_incomplete_last_batch=True)
-    train_sampler = BalancedBatchSamplerWithCustomComposition(train_dataset.dataset_ids, seed=SEED, batch_composition=HYPERPARAMETERS['batch_composition'])
+    train_sampler = BalancedBatchSampler(train_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=True, allow_incomplete_last_batch=True)
+    validation_sampler = BalancedBatchSampler(validation_dataset.dataset_ids, HYPERPARAMETERS['batch_size'], seed=SEED, shuffle=False, allow_incomplete_last_batch=True)
+    #train_sampler = BalancedBatchSamplerWithCustomComposition(train_dataset.dataset_ids, seed=SEED, batch_composition=HYPERPARAMETERS['batch_composition'])
 
     # Create dataloaders for training and validation datasets
     train_dataloader = DataLoader(dataset=train_dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
-    #validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
-    validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
+    validation_dataloader = DataLoader(dataset=validation_dataset, batch_sampler=validation_sampler, num_workers=2, pin_memory=True, persistent_workers=True)
+    #validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
+    '''dataset_specific_models = {dataset_id: Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE, load_into_submodule='segformer_model')'''
 
     # Create model, optimizer, scheduler, and criterion
-    model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
+    model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)#, use_segformers=True).to(DEVICE)
     optimizer = create_optimizer(model, HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()
