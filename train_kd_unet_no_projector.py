@@ -42,14 +42,14 @@ DATASET_NAME = 'isles' # 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_dataset_specific/not_weighted/fused_dataset_specific_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_without_dropout_compound_loss_cos_sched/unet_no_proj/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/unet/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -58,7 +58,7 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
 # Flatten features for contrastive loss
 def flatten_features(features):
-    flat_features = [f.view(f.size(0), -1) for f in features]
+    flat_features = [f.reshape(f.size(0), -1) for f in features]
     return torch.cat(flat_features, dim=1)
 
 # Contrastive loss
@@ -95,7 +95,7 @@ def cosine_similarity_loss(student_features, teacher_features, device):
         for i in range(len(student_features))
     ]
     aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]
-    return sum(1 - F.cosine_similarity(s, t, dim=1).mean() for s, t in zip(student_features, aligned_teacher_features)) / len(student_features)
+    return sum(1 - F.cosine_similarity(student_feature, teacher_feature, dim=1).mean() for student_feature, teacher_feature in zip(student_features, aligned_teacher_features)) / len(student_features)
 
 # Dynamic curriculum for scheduling KD losses
 def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
@@ -208,16 +208,16 @@ if __name__ == '__main__':
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
 
     # Load the fused model checkpoint and create the teacher model for knowledge distillation    
-    teacher_model = TResUnetFusedModel(dataset_specific_models).to(DEVICE)
+    teacher_model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
     teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
     '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False )
     print(incompatible.missing_keys)
     print(incompatible.unexpected_keys)'''
     teacher_model = freeze_model_parameters(teacher_model)
 
-    # Create model, optimizer, scheduler, and criterion
+    # Create model, optimizer, scheduler and criterion
     student_model = UNet(3, 1, True).to(DEVICE)
-    optimizer = torch.optim.Adam(list(student_model.parameters()), lr=HYPERPARAMETERS['init_learning_rate'])
+    optimizer = torch.optim.Adam(student_model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'])
     criterion = DiceBCELoss()
