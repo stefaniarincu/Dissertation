@@ -19,7 +19,7 @@ grad_scaler = GradScaler('cuda')
 # Constant for hyperparameters (moved here for clarity and easy modification)
 HYPERPARAMETERS = {
     'image_size': (256, 256),
-    'batch_size': 16,
+    'batch_size': 8,
     'num_epochs': 100,
     'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
@@ -53,7 +53,7 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_exp/kd/fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/v2/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/kd/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/batch_size_{HYPERPARAMETERS["batch_size"]}_with_augmentations/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -79,28 +79,10 @@ def contrastive_loss(student_features, teacher_features, temperature=0.5):
 
 # Function that computes the feature alignment loss by calculating the MSE between the student and teacher features
 def compute_feature_alignment_loss(student_features, teacher_features):
-    '''for student_feature in student_features:
-        print(student_feature.shape)
-    for teacher_feature in teacher_features:
-        print(teacher_feature.shape)'''
-
-    '''aligners = [
-        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(device)
-        for i in range(len(student_features))
-    ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
-
-    return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(teacher_features)
+    return sum(F.mse_loss(student_feature, teacher_feature) for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(student_features)
 
 # Function that computes the cosine similarity between the student and teacher features
 def cosine_similarity_loss(student_features, teacher_features):
-    '''aligners = [
-        nn.Conv2d(teacher_features[i].size(1), student_features[i].size(1), kernel_size=1, stride=1, padding=0).to(
-            device)
-        for i in range(len(student_features))
-    ]
-    aligned_teacher_features = [aligners[i](teacher_features[i]) for i in range(len(teacher_features))]'''
-
     return sum(1 - F.cosine_similarity(student_feature, teacher_feature, dim=1).mean() for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(student_features)
 
 # Function for dynamic curriculum for scheduling KD losses
@@ -133,7 +115,8 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
         # Pass the batch through the teacher model
         with autocast('cuda'), torch.no_grad():
             _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
-        
+            teacher_features = [teacher_feature.detach() for teacher_feature in teacher_features]
+
         with autocast('cuda'):
             student_output, student_features = student_model(batched_images, return_features=True)
             
@@ -149,17 +132,17 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
                         curriculum_factor * delta * similarity_loss)
             #print(f'Segmentation Loss: {segmentation_loss.item():.4f}, Feature Alignment Loss: {feature_alignment_loss.item():.4f}, Total Loss: {total_loss.item():.4f}')
             
-            grad_scaler.scale(total_loss).backward()
-            grad_scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(student_model.parameters(), max_norm=0.5)
+        grad_scaler.scale(total_loss).backward()
+        grad_scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(student_model.parameters(), max_norm=1.0)
 
-            grad_scaler.step(optimizer)
-            grad_scaler.update()
+        grad_scaler.step(optimizer)
+        grad_scaler.update()
 
-            epoch_loss += total_loss.item() * batched_images.size(0)
+        epoch_loss += total_loss.item() * batched_images.size(0)
 
-            for yt, yp in zip(batched_masks, student_output):
-                update_metrics(results, yt, yp)
+        for yt, yp in zip(batched_masks, student_output):
+            update_metrics(results, yt, yp)
 
     return compute_final_results(epoch_loss, results, len(dataloader.dataset))
 
@@ -171,14 +154,14 @@ def evaluate_step(student_model, dataloader, dice_bce_criterion, device):
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
 
-    with torch.inference_mode():
+    with autocast('cuda'), torch.inference_mode():
         for batched_images, batched_masks in dataloader:
             batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
             batched_masks = batched_masks.to(device, dtype=torch.float32, non_blocking=True)
 
             y_pred = student_model(batched_images)
             segmentation_loss = dice_bce_criterion(y_pred, batched_masks)
-
+            
             epoch_loss += segmentation_loss.item() * batched_images.size(0)
 
             for yt, yp in zip(batched_masks, y_pred):
@@ -227,15 +210,12 @@ if __name__ == '__main__':
     print(incompatible.unexpected_keys)'''
     teacher_model = freeze_model_parameters(teacher_model)
 
-    # Feature aligner
-    #aligner = FeatureAligner([192, 768, 1536], [192, 768, 1536]).to(DEVICE)
-
     # Create model, optimizer, scheduler, and criterion
     student_model = TResUnet().to(DEVICE)
     optimizer = torch.optim.Adam(student_model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'])
-    criterion = DiceBCELoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'], eta_min=1e-8)
+    dice_bce_criterion = DiceBCELoss()
 
     # Initialize variables for tracking the best validation metric and early stopping
     best_validation_metric = -1.0
@@ -249,8 +229,8 @@ if __name__ == '__main__':
         contrastive_weight = min(HYPERPARAMETERS['max_contrastive_weight'], HYPERPARAMETERS['initial_contrastive_weight'] + epoch * HYPERPARAMETERS['weight_increment'])
 
         # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, criterion, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], gamma=HYPERPARAMETERS['gamma'], delta=HYPERPARAMETERS['delta'], temperature=temperature, contrastive_weight=contrastive_weight)
-        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, criterion, DEVICE)
+        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, dice_bce_criterion, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], gamma=HYPERPARAMETERS['gamma'], delta=HYPERPARAMETERS['delta'], temperature=temperature, contrastive_weight=contrastive_weight)
+        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, dice_bce_criterion, DEVICE)
         #scheduler.step(validation_loss)
         scheduler.step()
 
@@ -289,5 +269,5 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
 
     # Test the model
-    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, criterion, DEVICE)
+    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, dice_bce_criterion, DEVICE)
     log_results_test(TEST_LOG_PATH, test_loss, test_metrics)
