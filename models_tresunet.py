@@ -611,5 +611,5 @@ class TResUnetFusedModel(nn.Module):
         if return_features:
             return y, [conv_s1, conv_s2, conv_s3, conv_bottleneck]
         if return_features_unet:
-            return y, [combined_s1, combined_s2, combined_s3]
+            return y, [conv_s1, conv_s2, conv_s3] #[combined_s1, combined_s2, combined_s3]
         return y
