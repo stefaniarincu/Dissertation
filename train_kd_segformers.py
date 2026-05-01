@@ -24,6 +24,7 @@ HYPERPARAMETERS = {
     'num_epochs': 100,
     'init_learning_rate': 3e-5,#0.0001,
     'scheduler_patience': 5,
+    'early_stopping_patience': 20,
     'alpha': 0.5,
     'gamma': 0.3,
     'delta': 0.1,
@@ -253,7 +254,7 @@ if __name__ == '__main__':
             print_and_save(TRAIN_LOG_PATH, data_str)
 
             best_validation_metric = validation_metrics[1]
-            torch.save({'student_model': student_model.state_dict(), 'aligner': aligner.state_dict()}, CHECKPOINT_PATH)
+            torch.save(student_model.state_dict(), CHECKPOINT_PATH)
             num_epochs_no_improvement = 0
         else:
             num_epochs_no_improvement += 1
@@ -270,9 +271,7 @@ if __name__ == '__main__':
     # Create the test log file
     create_log_file(TEST_LOG_PATH)
     # Load best model and check its performance
-    checkpoint = torch.load(CHECKPOINT_PATH, map_location=DEVICE)
-    student_model.load_state_dict(checkpoint['student_model'])
-    aligner.load_state_dict(checkpoint['aligner'])
+    student_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
 
     # Load the images and masks file names for the test split
     test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
