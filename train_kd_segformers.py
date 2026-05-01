@@ -53,7 +53,7 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/from_segformers_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/kd/fused_from_segformers_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/v4/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/kd/fused_from_segformers_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -121,9 +121,12 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
         with autocast('cuda'), torch.no_grad():
             _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
             teacher_features = [teacher_feature.detach() for teacher_feature in teacher_features]
+            teacher_features = teacher_features[:3]
         
         with autocast('cuda'):
             student_output, not_aligned_student_features = student_model(batched_images, return_features=True)
+            not_aligned_student_features = not_aligned_student_features[:3]
+
             student_features = aligner(batched_images, not_aligned_student_features)
             segmentation_loss = dice_bce_criterion(student_output, batched_masks)
             
@@ -225,7 +228,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(list(student_model.parameters()) + list(aligner.parameters()), lr=HYPERPARAMETERS['init_learning_rate'])
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'])
-    criterion = DiceBCELoss()
+    dice_bce_criterion = DiceBCELoss()
 
     # Initialize variables for tracking the best validation metric and early stopping
     best_validation_metric = -1.0
@@ -240,7 +243,7 @@ if __name__ == '__main__':
 
         # Train and evaluate for one epoch
         train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, dice_bce_criterion, aligner, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], gamma=HYPERPARAMETERS['gamma'], delta=HYPERPARAMETERS['delta'], temperature=temperature, contrastive_weight=contrastive_weight)
-        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, criterion, DEVICE)
+        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, dice_bce_criterion, DEVICE)
         #scheduler.step(validation_loss)
         scheduler.step()
 
@@ -281,5 +284,5 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
 
     # Test the model
-    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, criterion, DEVICE)
+    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, dice_bce_criterion, DEVICE)
     log_results_test(TEST_LOG_PATH, test_loss, test_metrics)
