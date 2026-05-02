@@ -38,11 +38,11 @@ DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/segformers/b2'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract/segformers/b2'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/from_segformers_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/v2'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_fused.txt'
