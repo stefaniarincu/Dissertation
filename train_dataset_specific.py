@@ -18,7 +18,7 @@ HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
     'num_epochs': 300,
-    'init_learning_rate': 6e-5,#0.0001,
+    'init_learning_rate': 4e-5,#0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
     'segformer_model_name': 'nvidia/mit-b2' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
@@ -32,7 +32,7 @@ DATASET_NAME = 'isles' # 'isles', 'bmshare', 'brats', 'brats_ped'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/segformers/mit-b2/v5/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract/segformers/b2_plateau_sched/3/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -127,6 +127,8 @@ if __name__ == '__main__':
     print(model.out_channels)
     optimizer = torch.optim.Adam(model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
+    #scheduler = torch.optim.lr_scheduler.PolynomialLR(optimizer, total_iters=HYPERPARAMETERS['num_epochs'], power=0.9)
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'], eta_min=1e-8)
     criterion = DiceBCELoss()
 
     # Initialize variables for tracking the best validation metric and early stopping
@@ -140,6 +142,7 @@ if __name__ == '__main__':
         train_loss, train_metrics = train_step(model, train_dataloader, optimizer, criterion, DEVICE)
         validation_loss, validation_metrics = evaluate_step(model, validation_dataloader, criterion, DEVICE)
         scheduler.step(validation_loss)
+        #scheduler.step()
 
         # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
         if validation_metrics[1] > best_validation_metric:
