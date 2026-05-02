@@ -1,0 +1,6 @@
+
+2026-05-02 07:58:43.624995
+Test set size: 1569
+
+Test Loss: 0.2750 - Jaccard: 0.8269 - Dice (F1): 0.8627 - Recall: 0.8627 - Precision: 0.9578
+
