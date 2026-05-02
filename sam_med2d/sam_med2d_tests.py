@@ -10,8 +10,8 @@ from models_tresunet import TResUnet
 
 import sys
 sys.path.append('/root/Disertation/sam_med2d')
-from sam_med2d.utils_file import get_boxes_from_mask, FocalDiceloss_IoULoss
-from sam_med2d.segment_anything import sam_model_registry
+from utils_file import get_boxes_from_mask, FocalDiceloss_IoULoss
+from segment_anything import sam_model_registry
 from torch.nn import functional as F
 
 SEED = 42
@@ -31,7 +31,7 @@ HYPERPARAMETERS = {
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'bmshare', 'brats', 'brats_ped'
+DATASET_NAME = 'isles' # 'isles', 'bmshare', 'brats', 'brats_ped'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for sammed2d model checkpoint path
