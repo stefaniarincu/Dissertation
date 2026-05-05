@@ -10,7 +10,7 @@ from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet, TResUnetFusedModel
-from model_segformer import Segformer, SegformerFeatureAdapter
+from model_segformer import Segformer
 
 SEED = 42
 DEVICE = torch.device('cuda')
@@ -22,7 +22,7 @@ HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
     'num_epochs': 100,
-    'init_learning_rate': 3e-5,#0.0001,
+    'init_learning_rate': 4e-5,#0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
     'alpha': 0.5,
@@ -43,7 +43,7 @@ IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 ROOT_PATH = '/root/Disertation'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'isles', 'bmshare', 'brats'
+DATASET_NAME = 'brats' # 'isles', 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
@@ -54,11 +54,109 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_feat_teacher_to_student/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
 TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
+
+
+# Feature aligner class to align Segformer to TresUnet
+"""class FeatureAligner(nn.Module):
+    def __init__(self, segformer_channels):
+        super().__init__()
+
+        s1, s2, s3, s4 = segformer_channels
+
+        self.s1_projection = nn.Sequential(
+            nn.Conv2d(s1, 64, kernel_size=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+
+        self.s2_projection = nn.Sequential(
+            nn.Conv2d(s2, 256, kernel_size=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+
+        self.s3_projection = nn.Sequential(
+            nn.Conv2d(s3, 512, kernel_size=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True)
+        )
+
+        '''self.bottleneck_projection = nn.Sequential(
+            nn.Conv2d(s4, 512, kernel_size=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True)
+        )'''
+    
+    def forward(self, x, segformer_features):
+        #segformer_f1, segformer_f2, segformer_f3, segformer_bottleneck = segformer_features
+        segformer_f1, segformer_f2, segformer_f3 = segformer_features
+
+        h, w = x.shape[2], x.shape[3]
+
+        f1 = F.interpolate(segformer_f1, size=(h // 2, w // 2), mode='bilinear', align_corners=False)
+        f2 = F.interpolate(segformer_f2, size=(h // 4, w // 4), mode='bilinear', align_corners=False)
+        f3 = F.interpolate(segformer_f3, size=(h // 8, w // 8), mode='bilinear', align_corners=False)
+        #f4 = F.interpolate(segformer_bottleneck, size=(h // 16, w // 16), mode='bilinear', align_corners=False)
+
+        s1 = self.s1_projection(f1)
+        s2 = self.s2_projection(f2)
+        s3 = self.s3_projection(f3)
+        #bottleneck = self.bottleneck_projection(f4)
+
+        return [s1, s2, s3] #, bottleneck]"""
+
+class FeatureAligner(nn.Module):
+    def __init__(self, segformer_channels):
+        super().__init__()
+
+        s1, s2, s3, s4 = segformer_channels
+
+        self.s1_projection = nn.Sequential(
+            nn.Conv2d(64, s1, kernel_size=1),
+            nn.BatchNorm2d(s1),
+            nn.ReLU(inplace=True)
+        )
+
+        self.s2_projection = nn.Sequential(
+            nn.Conv2d(256, s2, kernel_size=1),
+            nn.BatchNorm2d(s2),
+            nn.ReLU(inplace=True)
+        )
+
+        self.s3_projection = nn.Sequential(
+            nn.Conv2d(512, s3, kernel_size=1),
+            nn.BatchNorm2d(s3),
+            nn.ReLU(inplace=True)
+        )
+
+        '''self.bottleneck_projection = nn.Sequential(
+            nn.Conv2d(512, s4, kernel_size=1),
+            nn.BatchNorm2d(s4),
+            nn.ReLU(inplace=True)
+        )'''
+    
+    def forward(self, x, features):
+        #f1, f2, f3, bottleneck = features
+        f1, f2, f3 = features
+
+        h, w = x.shape[2], x.shape[3]
+
+        f1 = F.interpolate(f1, size=(h // 4, w // 4), mode='bilinear', align_corners=False)
+        f2 = F.interpolate(f2, size=(h // 8, w // 8), mode='bilinear', align_corners=False)
+        f3 = F.interpolate(f3, size=(h // 16, w // 16), mode='bilinear', align_corners=False)
+        #f4 = F.interpolate(bottleneck, size=(h // 32, w // 32), mode='bilinear', align_corners=False)
+
+        s1 = self.s1_projection(f1)
+        s2 = self.s2_projection(f2)
+        s3 = self.s3_projection(f3)
+        #bottleneck = self.bottleneck_projection(f4)
+
+        return [s1, s2, s3] #, bottleneck]
 
 
 # Function that flattens features for contrastive loss
@@ -125,7 +223,7 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
             teacher_features = teacher_features[:3]
         
         with autocast('cuda'):
-            student_output, not_aligned_student_features = student_model(batched_images, return_features=True)
+            '''student_output, not_aligned_student_features = student_model(batched_images, return_features=True)
             not_aligned_student_features = not_aligned_student_features[:3]
 
             student_features = aligner(batched_images, not_aligned_student_features)
@@ -133,7 +231,19 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
             
             kd_contrastive_loss = contrastive_loss(student_features, teacher_features, temperature=temperature)
             feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
-            similarity_loss = cosine_similarity_loss(student_features, teacher_features)
+            similarity_loss = cosine_similarity_loss(student_features, teacher_features)'''
+
+            student_output, student_features = student_model(batched_images, return_features=True)
+            student_features = student_features[:3]
+
+            teacher_features_aligned = aligner(batched_images, teacher_features)
+            #print(f'Student features shapes: {[f.shape for f in student_features]}')
+            #print(f'Teacher features shapes: {[f.shape for f in teacher_features_aligned]}')
+            segmentation_loss = dice_bce_criterion(student_output, batched_masks)
+
+            kd_contrastive_loss = contrastive_loss(student_features, teacher_features_aligned, temperature=temperature)
+            feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features_aligned)
+            similarity_loss = cosine_similarity_loss(student_features, teacher_features_aligned)
 
             # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
             total_loss = (alpha * segmentation_loss +
@@ -210,10 +320,12 @@ if __name__ == '__main__':
 
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    #dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
 
     # Create model, optimizer, scheduler, and criterion
     teacher_model = TResUnetFusedModel(list(dataset_specific_models.values()), use_segformers=True).to(DEVICE)
+    #teacher_model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
     teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
     '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False )
     print(incompatible.missing_keys)
@@ -224,7 +336,7 @@ if __name__ == '__main__':
     student_model = Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE)
 
     # Feature aligner to adapt student features to teacher features for the feature alignment loss
-    aligner = SegformerFeatureAdapter(student_model.out_channels).to(DEVICE)
+    aligner = FeatureAligner(student_model.out_channels).to(DEVICE)
 
     optimizer = torch.optim.Adam(list(student_model.parameters()) + list(aligner.parameters()), lr=HYPERPARAMETERS['init_learning_rate'])
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
