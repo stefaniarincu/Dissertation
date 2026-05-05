@@ -18,7 +18,7 @@ segformer_model_name: nvidia/mit-b2
 Train set size: 45725
 Validation set size: 5735
 
-Valid F1 improved from -1.0000 to 0.8719. Saving checkpoint: /root/Disertation/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_feat_teacher_to_student/brats/distilled_model_brats.pth
+Valid F1 improved from -1.0000 to 0.8719. Saving checkpoint: /root/Disertation/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_features_teacher_to_student/brats/distilled_model_brats.pth
 Epoch 1 | Epoch Time: 7m 36s
 	Train Loss: 0.1160 - Jaccard: 0.8088 - Dice (F1): 0.8433 - Recall: 0.8925 - Precision: 0.9002
 	Validation Loss: 0.6220 - Jaccard: 0.8404 - Dice (F1): 0.8719 - Recall: 0.8955 - Precision: 0.9350
@@ -31,7 +31,7 @@ Epoch 3 | Epoch Time: 7m 20s
 	Train Loss: 0.0513 - Jaccard: 0.8642 - Dice (F1): 0.8937 - Recall: 0.9060 - Precision: 0.9490
 	Validation Loss: 0.5553 - Jaccard: 0.8385 - Dice (F1): 0.8698 - Recall: 0.8890 - Precision: 0.9390
 
-Valid F1 improved from 0.8719 to 0.8778. Saving checkpoint: /root/Disertation/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_feat_teacher_to_student/brats/distilled_model_brats.pth
+Valid F1 improved from 0.8719 to 0.8778. Saving checkpoint: /root/Disertation/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_features_teacher_to_student/brats/distilled_model_brats.pth
 Epoch 4 | Epoch Time: 7m 20s
 	Train Loss: 0.0477 - Jaccard: 0.8706 - Dice (F1): 0.8993 - Recall: 0.9097 - Precision: 0.9515
 	Validation Loss: 0.4575 - Jaccard: 0.8476 - Dice (F1): 0.8778 - Recall: 0.8946 - Precision: 0.9464
@@ -68,7 +68,7 @@ Epoch 12 | Epoch Time: 6m 38s
 	Train Loss: 0.0417 - Jaccard: 0.8897 - Dice (F1): 0.9157 - Recall: 0.9204 - Precision: 0.9616
 	Validation Loss: 0.3151 - Jaccard: 0.8426 - Dice (F1): 0.8747 - Recall: 0.8744 - Precision: 0.9602
 
-Valid F1 improved from 0.8778 to 0.8793. Saving checkpoint: /root/Disertation/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_feat_teacher_to_student/brats/distilled_model_brats.pth
+Valid F1 improved from 0.8778 to 0.8793. Saving checkpoint: /root/Disertation/files/final_experiments/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_features_teacher_to_student/brats/distilled_model_brats.pth
 Epoch 13 | Epoch Time: 6m 44s
 	Train Loss: 0.0415 - Jaccard: 0.8904 - Dice (F1): 0.9162 - Recall: 0.9209 - Precision: 0.9614
 	Validation Loss: 0.3236 - Jaccard: 0.8472 - Dice (F1): 0.8793 - Recall: 0.8910 - Precision: 0.9485
