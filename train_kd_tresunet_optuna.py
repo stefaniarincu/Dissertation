@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import albumentations as A
 from torch.amp import autocast, GradScaler
+import optuna
 from utils import  seed_all,create_log_file, print_and_save, log_hyperparameters, load_dataset_specific_models, freeze_model_parameters, log_results_train_val, log_results_test
 from data import load_split_data, shuffle_data, SegmentationDataset
 from metrics import DiceBCELoss, update_metrics, compute_final_results
@@ -53,12 +54,45 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/knowledge_distillation/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/new_weights/{DATASET_NAME}'
-os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
-CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
-TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
-TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
+LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/knowledge_distillation/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout'
 
+def suggest_kd_params(trial):
+    params = {
+        'alpha': trial.suggest_float('alpha', 0.3, 1.0),
+        'gamma': trial.suggest_float('gamma', 0.1, 0.8),
+        'delta': trial.suggest_float('delta', 0.1, 0.8),
+
+        'initial_temperature': trial.suggest_float('initial_temperature', 0.5, 2.0),
+        'min_temperature': trial.suggest_float('min_temperature', 0.5, 1.5),
+        'temperature_decay': trial.suggest_float('temperature_decay', 0.85, 0.98),
+        'temperature_decay_step': trial.suggest_int('temperature_decay_step', 3, 10),
+
+        'initial_contrastive_weight': trial.suggest_float('initial_contrastive_weight', 0.02, 0.2),
+        'max_contrastive_weight': trial.suggest_float('max_contrastive_weight', 0.3, 0.8),
+        'weight_increment': trial.suggest_float('weight_increment', 0.003, 0.02),
+
+        'warmup_epochs': trial.suggest_int('warmup_epochs', 3, 8),
+        'ramp_epochs': trial.suggest_int('ramp_epochs', 8, 20),
+
+        'init_learning_rate': trial.suggest_float('lr', 1e-5, 1e-4, log=True)
+    }
+    
+    return params
+
+# Function for dynamic curriculum for scheduling KD losses
+def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
+    if epoch < warmup_epochs:
+        return 0.0  # No KD in warmup
+    elif epoch < warmup_epochs + ramp_epochs:
+        return (epoch - warmup_epochs) / ramp_epochs  # Gradually ramp up KD
+    else:
+        return 1.0  # Full KD after ramp-up
+
+def get_kd_scheduler_values(epoch, params):
+    curriculum_factor = dynamic_curriculum(epoch, warmup_epochs=params['warmup_epochs'], ramp_epochs=params['ramp_epochs'])
+    temperature = max(params['min_temperature'], params['initial_temperature'] * (params['temperature_decay'] ** (epoch // params['temperature_decay_step'])))
+    contrastive_weight = min(params['max_contrastive_weight'], params['initial_contrastive_weight'] + epoch * params['weight_increment'])
+    return curriculum_factor, temperature, contrastive_weight
 
 # Function that flattens features for contrastive loss
 def flatten_features(features):
@@ -88,26 +122,14 @@ def compute_feature_alignment_loss(student_features, teacher_features):
 def cosine_similarity_loss(student_features, teacher_features):
     return sum(1 - F.cosine_similarity(student_feature, teacher_feature, dim=1).mean() for student_feature, teacher_feature in zip(student_features, teacher_features)) / len(student_features)
 
-# Function for dynamic curriculum for scheduling KD losses
-def dynamic_curriculum(epoch, warmup_epochs=5, ramp_epochs=10):
-    if epoch < warmup_epochs:
-        return 0.0  # No KD in warmup
-    elif epoch < warmup_epochs + ramp_epochs:
-        return (epoch - warmup_epochs) / ramp_epochs  # Gradually ramp up KD
-    else:
-        return 1.0  # Full KD after ramp-up
-
-
 # Training uses both segmentation loss and feature alignment loss (mse, cosine similarity and contrastive loss), with dynamic curriculum scheduling for KD
 def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_criterion, device, 
-               epoch, alpha=0.5, gamma=0.3, delta=0.1, temperature=2.0, contrastive_weight=0.5):
+               epoch, alpha, gamma, delta, temperature, contrastive_weight, curriculum_factor):
     teacher_model.eval()
     student_model.train()
     
     epoch_loss = 0.0
     results = {'jaccard': 0.0, 'dice': 0.0, 'recall': 0.0, 'precision': 0.0}
-
-    curriculum_factor = dynamic_curriculum(epoch)
 
     for batched_images, batched_masks in dataloader:
         batched_images = batched_images.to(device, dtype=torch.float32, non_blocking=True)
@@ -177,18 +199,21 @@ def evaluate_step(student_model, dataloader, dice_bce_criterion, device):
 
     return compute_final_results(epoch_loss, results, len(dataloader.dataset))
 
+def objective(trial):
+    params = suggest_kd_params(trial)
+    trial_dir = f'{LOG_ROOT_PATH}/optuna_trials/trial_{trial.number}'
+    os.makedirs(trial_dir, exist_ok=True)
 
-if __name__ == '__main__':
+    trial_log_path = os.path.join(trial_dir, f'train_log_trial_{trial.number}.txt')
+    create_log_file(trial_log_path)
+    print_and_save(trial_log_path, f'Trial {trial.number}\nHyperparameters: {params}\n')
+
     seed_all(SEED)
-    create_log_file(TRAIN_LOG_PATH)
-    log_hyperparameters(TRAIN_LOG_PATH, HYPERPARAMETERS)
 
     # Load the images and masks file names for training and validation
     train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
     validation_images_paths, validation_masks_paths = load_split_data(DATASET_PATH, 'val.txt')
     train_images_paths, train_masks_paths = shuffle_data((train_images_paths, train_masks_paths), SEED)
-    dataset_log_text = f'Train set size: {len(train_images_paths)}\nValidation set size: {len(validation_images_paths)}\n'
-    print_and_save(TRAIN_LOG_PATH, dataset_log_text)
 
     # Define data augmentation transforms using albumentations
     augmentation = A.Compose([
@@ -206,6 +231,72 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(dataset=train_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True)
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
+    # Create model, optimizer, scheduler, and criterion
+    student_model = TResUnet().to(DEVICE)
+    optimizer = torch.optim.Adam(student_model.parameters(), lr=params['init_learning_rate'])
+    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'], eta_min=1e-8)
+    dice_bce_criterion = DiceBCELoss()
+
+    # Initialize variables for tracking the best validation metric and early stopping
+    best_validation_metric = -1.0
+    num_epochs_no_improvement = 0
+    best_state_dict = None
+
+    for epoch in range(HYPERPARAMETERS['num_epochs']):
+        start_time = time.time()
+
+        # Dynamic curriculum scheduling
+        curriculum_factor, temperature, contrastive_weight = get_kd_scheduler_values(epoch, params)
+
+        # Train and evaluate for one epoch
+        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, dice_bce_criterion, DEVICE, epoch, alpha=params['alpha'], gamma=params['gamma'], delta=params['delta'], contrastive_weight=contrastive_weight, temperature=temperature, curriculum_factor=curriculum_factor)
+        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, dice_bce_criterion, DEVICE)
+        scheduler.step()
+
+        validation_dice = validation_metrics[1]
+        trial.report(validation_dice, epoch)
+
+        if validation_dice > best_validation_metric:
+            print_and_save(trial_log_path, f'Valid Dice improved from {best_validation_metric:.4f} to {validation_dice:.4f}')
+            best_validation_metric = validation_dice
+            num_epochs_no_improvement = 0
+            best_state_dict = {k: v.detach().cpu().clone() for k, v in student_model.state_dict().items()}
+        else:
+            num_epochs_no_improvement += 1
+
+        end_time = time.time()
+        log_results_train_val(trial_log_path, epoch, train_loss, train_metrics, validation_loss, validation_metrics, start_time, end_time)
+
+        if trial.should_prune():
+            del student_model, optimizer, scheduler
+            torch.cuda.empty_cache()
+            raise optuna.exceptions.TrialPruned()
+
+        if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
+            print_and_save(trial_log_path, f'Early stopping triggered after {epoch+1} epochs with no improvement.')
+            break
+    
+    if best_state_dict is not None:
+        student_model.load_state_dict(best_state_dict)
+
+        test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
+
+        # Create dataset and dataloader for the test set of the current dataset
+        test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
+        test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
+
+        # Test the model
+        test_loss, test_metrics = evaluate_step(student_model, test_dataloader, dice_bce_criterion, DEVICE)
+        log_results_test(trial_log_path, test_loss, test_metrics)
+
+    del student_model, optimizer, scheduler, best_state_dict
+    torch.cuda.empty_cache()
+
+    return best_validation_metric
+
+
+if __name__ == '__main__':
     # Load dataset specific models checkpoints for each dataset
     dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
@@ -218,64 +309,12 @@ if __name__ == '__main__':
     print(incompatible.unexpected_keys)'''
     teacher_model = freeze_model_parameters(teacher_model)
 
-    # Create model, optimizer, scheduler, and criterion
-    student_model = TResUnet().to(DEVICE)
-    optimizer = torch.optim.Adam(student_model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
-    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'], eta_min=1e-8)
-    dice_bce_criterion = DiceBCELoss()
+    optuna_sampler = optuna.samplers.TPESampler(seed=SEED, multivariate=True)
+    pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=10, interval_steps=5)
+    study = optuna.create_study(direction='maximize', sampler=optuna_sampler, pruner=pruner)
+    study.optimize(objective, n_trials=25)
 
-    # Initialize variables for tracking the best validation metric and early stopping
-    best_validation_metric = -1.0
-    num_epochs_no_improvement = 0
+    print(f'Best trial: {study.best_trial.number}, Value: {study.best_trial.value}')
+    print(f'Best hyperparameters: {study.best_trial.params}')
 
-    for epoch in range(HYPERPARAMETERS['num_epochs']):
-        start_time = time.time()
-
-        # Dynamic curriculum scheduling
-        temperature = max(0.5, HYPERPARAMETERS['initial_temperature'] * (0.9 ** (epoch // 5)))
-        contrastive_weight = min(HYPERPARAMETERS['max_contrastive_weight'], HYPERPARAMETERS['initial_contrastive_weight'] + epoch * HYPERPARAMETERS['weight_increment'])
-
-        # Train and evaluate for one epoch
-        train_loss, train_metrics = train_step(teacher_model, student_model, train_dataloader, optimizer, dice_bce_criterion, DEVICE, epoch, alpha=HYPERPARAMETERS['alpha'], gamma=HYPERPARAMETERS['gamma'], delta=HYPERPARAMETERS['delta'], temperature=temperature, contrastive_weight=contrastive_weight)
-        validation_loss, validation_metrics = evaluate_step(student_model, validation_dataloader, dice_bce_criterion, DEVICE)
-        #scheduler.step(validation_loss)
-        scheduler.step()
-
-        # If the validation Dice (F1) score improved, save the model checkpoint and reset the early stopping counter
-        if validation_metrics[1] > best_validation_metric:
-            data_str = f'Valid F1 improved from {best_validation_metric:2.4f} to {validation_metrics[1]:2.4f}. Saving checkpoint: {CHECKPOINT_PATH}'
-            print_and_save(TRAIN_LOG_PATH, data_str)
-
-            best_validation_metric = validation_metrics[1]
-            torch.save(student_model.state_dict(), CHECKPOINT_PATH)
-            num_epochs_no_improvement = 0
-        else:
-            num_epochs_no_improvement += 1
-
-        # Write the epoch results to the log file
-        end_time = time.time()
-        log_results_train_val(TRAIN_LOG_PATH, epoch, train_loss, train_metrics, validation_loss, validation_metrics, start_time, end_time)
-        
-        # If early stopping is triggered, break the training loop
-        if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
-            print_and_save(TRAIN_LOG_PATH, f'Early stopping triggered after {epoch + 1} epochs.')
-            break
-
-    # Create the test log file
-    create_log_file(TEST_LOG_PATH)
-    # Load best model and check its performance
-    student_model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
-
-    # Load the images and masks file names for the test split
-    test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
-    dataset_log_text = f'Test set size: {len(test_images_paths)}\n'
-    print_and_save(TEST_LOG_PATH, dataset_log_text)
-
-    # Create dataset and dataloader for the test set of the current dataset
-    test_dataset = SegmentationDataset(test_images_paths, test_masks_paths, HYPERPARAMETERS['image_size'], transform=None)
-    test_dataloader = DataLoader(dataset=test_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=0, pin_memory=True)
-
-    # Test the model
-    test_loss, test_metrics = evaluate_step(student_model, test_dataloader, dice_bce_criterion, DEVICE)
-    log_results_test(TEST_LOG_PATH, test_loss, test_metrics)
+    study.trials_dataframe().to_csv(os.path.join(LOG_ROOT_PATH, 'optuna_trials_summary.csv'), index=False)
