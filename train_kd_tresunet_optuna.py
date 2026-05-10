@@ -54,27 +54,28 @@ DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC
 FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/knowledge_distillation/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout'
+LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/knowledge_distillation/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/kd_optuna'
+os.makedirs(LOG_ROOT_PATH, exist_ok=True)
 
 def suggest_kd_params(trial):
     params = {
-        'alpha': trial.suggest_float('alpha', 0.3, 1.0),
-        'gamma': trial.suggest_float('gamma', 0.1, 0.8),
-        'delta': trial.suggest_float('delta', 0.1, 0.8),
+        'alpha': trial.suggest_float('alpha', 0.4, 1.0, step=0.05),
+        'gamma': trial.suggest_float('gamma', 0.1, 1.0, step=0.05),
+        'delta': trial.suggest_float('delta', 0.03, 1.0, step=0.01),
 
-        'initial_temperature': trial.suggest_float('initial_temperature', 0.5, 2.0),
-        'min_temperature': trial.suggest_float('min_temperature', 0.5, 1.5),
-        'temperature_decay': trial.suggest_float('temperature_decay', 0.85, 0.98),
-        'temperature_decay_step': trial.suggest_int('temperature_decay_step', 3, 10),
+        'initial_temperature': trial.suggest_float('initial_temperature', 1.5, 4.0, step=0.05),
+        'min_temperature': trial.suggest_float('min_temperature', 0.5, 1.5, step=0.05),
+        'temperature_decay': trial.suggest_float('temperature_decay', 0.85, 0.98, step=0.01),
+        'temperature_decay_step': trial.suggest_int('temperature_decay_step', 3, 10, step=1),
 
-        'initial_contrastive_weight': trial.suggest_float('initial_contrastive_weight', 0.02, 0.2),
-        'max_contrastive_weight': trial.suggest_float('max_contrastive_weight', 0.3, 0.8),
-        'weight_increment': trial.suggest_float('weight_increment', 0.003, 0.02),
+        'initial_contrastive_weight': trial.suggest_float('initial_contrastive_weight', 0.03, 0.2, step=0.01),
+        'max_contrastive_weight': trial.suggest_float('max_contrastive_weight', 0.3, 1.0, step=0.01),
+        'weight_increment': trial.suggest_float('weight_increment', 0.003, 0.02, step=0.001),
 
-        'warmup_epochs': trial.suggest_int('warmup_epochs', 3, 8),
-        'ramp_epochs': trial.suggest_int('ramp_epochs', 8, 20),
+        'warmup_epochs': trial.suggest_int('warmup_epochs', 3, 8, step=1),
+        'ramp_epochs': trial.suggest_int('ramp_epochs', 8, 20, step=1),
 
-        'init_learning_rate': trial.suggest_float('lr', 1e-5, 1e-4, log=True)
+        'init_learning_rate': trial.suggest_categorical('init_learning_rate', [1e-4, 9e-5, 8e-5, 7e-5, 6e-5, 5e-5])
     }
     
     return params
@@ -124,7 +125,7 @@ def cosine_similarity_loss(student_features, teacher_features):
 
 # Training uses both segmentation loss and feature alignment loss (mse, cosine similarity and contrastive loss), with dynamic curriculum scheduling for KD
 def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_criterion, device, 
-               epoch, alpha, gamma, delta, temperature, contrastive_weight, curriculum_factor):
+               epoch, alpha, gamma, delta, contrastive_weight, temperature, curriculum_factor):
     teacher_model.eval()
     student_model.train()
     
@@ -201,7 +202,7 @@ def evaluate_step(student_model, dataloader, dice_bce_criterion, device):
 
 def objective(trial):
     params = suggest_kd_params(trial)
-    trial_dir = f'{LOG_ROOT_PATH}/optuna_trials/trial_{trial.number}'
+    trial_dir = f'{LOG_ROOT_PATH}/trial_{trial.number}'
     os.makedirs(trial_dir, exist_ok=True)
 
     trial_log_path = os.path.join(trial_dir, f'train_log_trial_{trial.number}.txt')
@@ -212,6 +213,8 @@ def objective(trial):
 
     # Load the images and masks file names for training and validation
     train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
+    #train_size = int(0.5 * len(train_images_paths))
+    #train_images_paths, train_masks_paths = train_images_paths[:train_size], train_masks_paths[:train_size]
     validation_images_paths, validation_masks_paths = load_split_data(DATASET_PATH, 'val.txt')
     train_images_paths, train_masks_paths = shuffle_data((train_images_paths, train_masks_paths), SEED)
 
@@ -234,7 +237,6 @@ def objective(trial):
     # Create model, optimizer, scheduler, and criterion
     student_model = TResUnet().to(DEVICE)
     optimizer = torch.optim.Adam(student_model.parameters(), lr=params['init_learning_rate'])
-    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'], eta_min=1e-8)
     dice_bce_criterion = DiceBCELoss()
 
@@ -268,16 +270,12 @@ def objective(trial):
         end_time = time.time()
         log_results_train_val(trial_log_path, epoch, train_loss, train_metrics, validation_loss, validation_metrics, start_time, end_time)
 
-        if trial.should_prune():
-            del student_model, optimizer, scheduler
-            torch.cuda.empty_cache()
-            raise optuna.exceptions.TrialPruned()
-
         if num_epochs_no_improvement == HYPERPARAMETERS['early_stopping_patience']:
             print_and_save(trial_log_path, f'Early stopping triggered after {epoch+1} epochs with no improvement.')
             break
     
     if best_state_dict is not None:
+        # Load the best model state dict before testing
         student_model.load_state_dict(best_state_dict)
 
         test_images_paths, test_masks_paths = load_split_data(DATASET_PATH, 'test.txt')
@@ -310,9 +308,12 @@ if __name__ == '__main__':
     teacher_model = freeze_model_parameters(teacher_model)
 
     optuna_sampler = optuna.samplers.TPESampler(seed=SEED, multivariate=True)
-    pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=10, interval_steps=5)
-    study = optuna.create_study(direction='maximize', sampler=optuna_sampler, pruner=pruner)
-    study.optimize(objective, n_trials=25)
+    study = optuna.create_study(study_name='kd_params', direction='maximize', sampler=optuna_sampler, storage=f'sqlite:///{LOG_ROOT_PATH}/optuna_study.db', load_if_exists=True)
+    
+    remaining_trials = 65 - len(study.trials)
+    if remaining_trials > 0:
+        print(f'Remaining trials to run: {remaining_trials}')
+        study.optimize(objective, n_trials=remaining_trials)
 
     print(f'Best trial: {study.best_trial.number}, Value: {study.best_trial.value}')
     print(f'Best hyperparameters: {study.best_trial.params}')
