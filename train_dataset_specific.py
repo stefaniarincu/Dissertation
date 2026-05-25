@@ -33,7 +33,7 @@ DATASET_NAME = 'lung' # 'isles', 'bmshare', 'brats', 'brats_ped', 'lits', 'kits'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/original/tresunet/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/tresunet/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/dataset_specific_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
