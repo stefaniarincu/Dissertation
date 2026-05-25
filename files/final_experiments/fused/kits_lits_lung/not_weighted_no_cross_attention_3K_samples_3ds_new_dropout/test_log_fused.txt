@@ -1,0 +1,17 @@
+
+2026-05-23 10:07:23.917363
+kits dataset
+Test set size: 2262
+
+Test Loss: 0.0778 - Jaccard: 0.8798 - Dice (F1): 0.8967 - Recall: 0.9131 - Precision: 0.9619
+
+lits dataset
+Test set size: 1774
+
+Test Loss: 0.0919 - Jaccard: 0.8381 - Dice (F1): 0.8729 - Recall: 0.8814 - Precision: 0.9452
+
+lung dataset
+Test set size: 720
+
+Test Loss: 0.1188 - Jaccard: 0.8861 - Dice (F1): 0.9096 - Recall: 0.9126 - Precision: 0.9634
+
