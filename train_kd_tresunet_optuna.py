@@ -12,6 +12,8 @@ from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet, TResUnetFusedModel
 #from fused_new_weighting import TResUnetFusedModel
 
+import pandas as pd
+
 SEED = 42
 DEVICE = torch.device('cuda')
 
@@ -36,29 +38,46 @@ HYPERPARAMETERS = {
 
 
 # Dictionary that maps dataset names to an id
-#IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats', 3: 'brats_ped'}
 IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
+EXPERIMENTS_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments'
 
 # Constants for dataset name and path
 DATASET_NAME = 'isles' # 'isles', 'bmshare', 'brats', 'brats_ped'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused_models/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/knowledge_distillation/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/kd_optuna'
+LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/kd_optuna2'
 os.makedirs(LOG_ROOT_PATH, exist_ok=True)
 
 def suggest_kd_params(trial):
     params = {
+        'alpha': trial.suggest_float('alpha', 0.4, 1.0, step=0.1),
+        'gamma': trial.suggest_float('gamma', 0.1, 1.0, step=0.1),
+        'delta': trial.suggest_float('delta', 0.05, 1.0, step=0.05),
+
+        'initial_temperature': trial.suggest_float('initial_temperature', 1.5, 4.0, step=0.1),
+        'min_temperature': trial.suggest_float('min_temperature', 0.5, 1.5, step=0.1),
+        'temperature_decay': trial.suggest_float('temperature_decay', 0.85, 0.98, step=0.01),
+        'temperature_decay_step': trial.suggest_int('temperature_decay_step', 3, 10, step=1),
+
+        'initial_contrastive_weight': trial.suggest_float('initial_contrastive_weight', 0.03, 0.2, step=0.01),
+        'max_contrastive_weight': trial.suggest_float('max_contrastive_weight', 0.3, 1.0, step=0.05),
+        'weight_increment': trial.suggest_float('weight_increment', 0.003, 0.02, step=0.001),
+
+        'warmup_epochs': trial.suggest_int('warmup_epochs', 3, 8, step=1),
+        'ramp_epochs': trial.suggest_int('ramp_epochs', 8, 20, step=1)
+    }
+    '''params = {
         'alpha': trial.suggest_float('alpha', 0.4, 1.0, step=0.05),
         'gamma': trial.suggest_float('gamma', 0.1, 1.0, step=0.05),
         'delta': trial.suggest_float('delta', 0.03, 1.0, step=0.01),
@@ -76,7 +95,7 @@ def suggest_kd_params(trial):
         'ramp_epochs': trial.suggest_int('ramp_epochs', 8, 20, step=1),
 
         'init_learning_rate': trial.suggest_categorical('init_learning_rate', [1e-4, 9e-5, 8e-5, 7e-5, 6e-5, 5e-5])
-    }
+    }'''
     
     return params
 
@@ -161,7 +180,7 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
                         curriculum_factor * contrastive_weight * kd_contrastive_loss +
                         curriculum_factor * gamma * feature_alignment_loss +
                         curriculum_factor * delta * similarity_loss)
-            #print(f'Segmentation: {segmentation_loss.item():.4f}, Contrastive: {kd_contrastive_loss.item():.4f}, Feature Alignment: {feature_alignment_loss.item():.4f}, Similarity: {similarity_loss.item():.4f}, Boundary: {boundary_loss.item():.4f}, Total: {total_loss.item():.4f}')
+            #print(f'Segmentation: {segmentation_loss.item():.4f}, Contrastive: {kd_contrastive_loss.item():.4f}, Feature Alignment: {feature_alignment_loss.item():.4f}, Similarity: {similarity_loss.item():.4f}, Total: {total_loss.item():.4f}')
             
         grad_scaler.scale(total_loss).backward()
         grad_scaler.unscale_(optimizer)
@@ -202,10 +221,8 @@ def evaluate_step(student_model, dataloader, dice_bce_criterion, device):
 
 def objective(trial):
     params = suggest_kd_params(trial)
-    trial_dir = f'{LOG_ROOT_PATH}/trial_{trial.number}'
-    os.makedirs(trial_dir, exist_ok=True)
 
-    trial_log_path = os.path.join(trial_dir, f'train_log_trial_{trial.number}.txt')
+    trial_log_path = os.path.join(LOG_ROOT_PATH, f'train_log_trial_{trial.number}.txt')
     create_log_file(trial_log_path)
     print_and_save(trial_log_path, f'Trial {trial.number}\nHyperparameters: {params}\n')
 
@@ -213,8 +230,6 @@ def objective(trial):
 
     # Load the images and masks file names for training and validation
     train_images_paths, train_masks_paths = load_split_data(DATASET_PATH, 'train.txt')
-    #train_size = int(0.5 * len(train_images_paths))
-    #train_images_paths, train_masks_paths = train_images_paths[:train_size], train_masks_paths[:train_size]
     validation_images_paths, validation_masks_paths = load_split_data(DATASET_PATH, 'val.txt')
     train_images_paths, train_masks_paths = shuffle_data((train_images_paths, train_masks_paths), SEED)
 
@@ -223,7 +238,6 @@ def objective(trial):
         A.Rotate(limit=35, p=0.3),
         A.HorizontalFlip(p=0.3),
         A.VerticalFlip(p=0.3),
-        #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
     ])
 
     # Create datasets for training and validation
@@ -236,7 +250,7 @@ def objective(trial):
 
     # Create model, optimizer, scheduler, and criterion
     student_model = TResUnet().to(DEVICE)
-    optimizer = torch.optim.Adam(student_model.parameters(), lr=params['init_learning_rate'])
+    optimizer = torch.optim.Adam(student_model.parameters(), lr=HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=HYPERPARAMETERS['num_epochs'], eta_min=1e-8)
     dice_bce_criterion = DiceBCELoss()
 

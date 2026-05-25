@@ -27,7 +27,7 @@ HYPERPARAMETERS = {
     'alpha': 0.5,
     'gamma': 0.3,
     'delta': 0.1,
-    'initial_temperature': 2,
+    'initial_temperature': 2.0,
     'initial_contrastive_weight': 0.1,
     'max_contrastive_weight': 0.5,
     'weight_increment': 0.01
@@ -36,24 +36,26 @@ HYPERPARAMETERS = {
 
 # Dictionary that maps dataset names to an id
 #IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats', 3: 'brats_ped'}
-IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+#IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+IDS_TO_DATASETS = {0: 'kits', 1: 'lits', 2: 'lung'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
+EXPERIMENTS_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments'
 
 # Constants for dataset name and path
-DATASET_NAME = 'isles' # 'bmshare', 'brats', 'brats_ped'
+DATASET_NAME = 'lung' # 'isles', 'bmshare', 'brats', 'brats_ped', 'lits', 'kits', 'lung'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/tresunet/'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{ROOT_PATH}/files/fused_models/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused_models/kits_lits_lung/from_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments/kd/from_fused_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/batch_size_{HYPERPARAMETERS["batch_size"]}_augmentations_no_rotations_0.3/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/kits_lits_lung/from_fused_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -76,6 +78,9 @@ def contrastive_loss(student_features, teacher_features, temperature=0.5):
     similarity_student = F.softmax(similarity_matrix_student / temperature, dim=1)
     similarity_teacher = F.softmax(similarity_matrix_teacher / temperature, dim=1)
     return F.kl_div(similarity_student.log(), similarity_teacher, reduction='batchmean')
+    #log_probs_student = F.log_softmax(similarity_matrix_student / temperature, dim=1)
+    #probs_teacher = F.softmax(similarity_matrix_teacher / temperature, dim=1)
+    #return F.kl_div(log_probs_student, probs_teacher, reduction='batchmean') * (temperature ** 2)
 
 # Function that computes the feature alignment loss by calculating the MSE between the student and teacher features
 def compute_feature_alignment_loss(student_features, teacher_features):
@@ -114,12 +119,17 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
 
         # Pass the batch through the teacher model
         with autocast('cuda'), torch.no_grad():
-            _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
+            teacher_output, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=True)
+            #teacher_probs = torch.sigmoid(teacher_output).detach()
             teacher_features = [teacher_feature.detach() for teacher_feature in teacher_features]
+            teacher_features = teacher_features[:3]
+            #print(teacher_features[0].shape, teacher_features[1].shape, teacher_features[2].shape)
 
         with autocast('cuda'):
             student_output, student_features = student_model(batched_images, return_features=True)
-            
+            student_features = student_features[:3]
+            #print(student_features[0].shape, student_features[1].shape, student_features[2].shape)
+
             segmentation_loss = dice_bce_criterion(student_output, batched_masks)
             kd_contrastive_loss = contrastive_loss(student_features, teacher_features, temperature=temperature)
             feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
@@ -130,7 +140,7 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
                         curriculum_factor * contrastive_weight * kd_contrastive_loss +
                         curriculum_factor * gamma * feature_alignment_loss +
                         curriculum_factor * delta * similarity_loss)
-            #print(f'Segmentation Loss: {segmentation_loss.item():.4f}, Feature Alignment Loss: {feature_alignment_loss.item():.4f}, Total Loss: {total_loss.item():.4f}')
+            #print(f'Segmentation: {segmentation_loss.item():.4f}, Contrastive: {kd_contrastive_loss.item():.4f}, Feature Alignment: {feature_alignment_loss.item():.4f}, Similarity: {similarity_loss.item():.4f}, Total: {total_loss.item():.4f}')
             
         grad_scaler.scale(total_loss).backward()
         grad_scaler.unscale_(optimizer)
@@ -184,10 +194,9 @@ if __name__ == '__main__':
 
     # Define data augmentation transforms using albumentations
     augmentation = A.Compose([
-        #A.Rotate(limit=35, p=0.3),
+        A.Rotate(limit=35, p=0.3),
         A.HorizontalFlip(p=0.3),
         A.VerticalFlip(p=0.3),
-        #A.CoarseDropout(p=0.3, num_holes_range=(1, 10), hole_height_range=(1, 32), hole_width_range=(1, 32))
     ])
 
     # Create datasets for training and validation

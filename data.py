@@ -9,7 +9,7 @@ import random
 
 ''' ============================================== LOADING DATA ============================================== '''
  
-# Function that loads a specified split data from specified path
+# Function that loads a specified split data from a specified path
 def load_split_data(dataset_path, split_filename):
     split_path = os.path.join(dataset_path, split_filename)
     with open(split_path, 'r') as f:
@@ -20,8 +20,8 @@ def load_split_data(dataset_path, split_filename):
     
     return images_paths, masks_paths
 
-# Function that loads data from all datasets
-def load_split_data_all_datasets(datasets_paths, split_filename, num_train_samples_per_dataset=None, num_val_samples_per_dataset=None):
+# Function that loads data from multiple datasets
+def load_split_data_multiple_datasets(datasets_paths, split_filename, num_train_samples_per_dataset=None, num_val_samples_per_dataset=None):
     images_by_dataset_id, masks_by_dataset_id = {}, {}
     # Collect the images and masks paths for each dataset and store them in a dictionary that maps dataset ids to the corresponding paths
     for dataset_id, dataset_path in datasets_paths.items():
@@ -72,6 +72,7 @@ def shuffle_data(data, random_state):
 
 ''' ============================================ DATASET CLASSES ============================================ '''
 
+# Function that pads the given image and mask with black pixels to make them 256x256 if they are smaller than 256x256
 def pad_black_to_256(image, mask):
     width, height = image.shape[1], image.shape[0]
     pad_width, pad_height = 256 - width, 256 - height
@@ -106,7 +107,7 @@ class BaseSegmentationDataset(Dataset):
         '''if image.shape[0] < 256 or image.shape[1] < 256:
             image, mask = pad_black_to_256(image, mask)'''
         
-        '''if image.shape[0] != 256 or  image.shape[1] != 256:
+        '''if image.shape[0] != 256 or image.shape[1] != 256:
             image = cv.resize(image, self.image_size, interpolation=cv.INTER_LINEAR)
             mask = cv.resize(mask, self.image_size, interpolation=cv.INTER_NEAREST)'''
 
@@ -255,6 +256,7 @@ class BalancedBatchSampler(Sampler):
 
             yield batch
 
+# Custom class used for balanced batch sampling with a custom composition that ensures that each batch contains a specified number of samples from each dataset
 class BalancedBatchSamplerWithCustomComposition(Sampler):
     def __init__(self, dataset_ids, seed, batch_composition={0: 4, 1: 4, 2: 8}):
         super().__init__()

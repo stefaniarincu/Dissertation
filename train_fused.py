@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 import albumentations as A
 from utils import seed_all, create_log_file, print_and_save, log_hyperparameters, save_resume_checkpoint, load_resume_checkpoint, load_dataset_specific_models, create_optimizer, log_results_train_val, log_results_test
-from data import load_split_data, load_split_data_all_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler, BalancedBatchSamplerWithCustomComposition
+from data import load_split_data, load_split_data_multiple_datasets, shuffle_data, SegmentationDatasetWithDatasetId, BalancedBatchSampler, BalancedBatchSamplerWithCustomComposition
 from metrics import DiceBCELoss, update_metrics, compute_final_results
 from models_tresunet import TResUnet, TResUnetFusedModel
 from model_segformer import Segformer
@@ -17,32 +17,34 @@ HYPERPARAMETERS = {
     'image_size': (256, 256),
     'batch_size': 16,
     'num_epochs': 300,
-    'init_learning_rate': 3e-5,
+    'init_learning_rate': 0.0001,
     'scheduler_patience': 5,
     'early_stopping_patience': 20,
     # dataset specific models weighting - 0 one-hot (match own dataset expert), 1 uniform, 2 biased towards own dataset expert and None if no weighted mode wanted
     'dsm_weighting_mode': None,
     #'batch_composition': {0: 4, 1: 4, 2: 8}
-    'segformer_model_name': 'nvidia/mit-b2' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
+    #'segformer_model_name': 'nvidia/mit-b2' # 'nvidia/mit-b0', 'nvidia/mit-b2', 'nvidia/mit-b4'
 }
 
 # Dictionary that maps dataset names to an id
 #IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats', 3: 'brats_ped'}
-IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+#IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+IDS_TO_DATASETS = {0: 'kits', 1: 'lits', 2: 'lung'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
+EXPERIMENTS_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments'
 
 # Constants for paths of all datasets
 DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract/segformers/b2'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/tresunet/'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constants for model checkpoint path and log path
-MODELS_AND_LOG_ROOT_PATH = f'{ROOT_PATH}/files/fused_models/from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout'
+MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused_models/kits_lits_lung/from_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/fused_model.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_fused.txt'
@@ -111,8 +113,8 @@ if __name__ == '__main__':
     log_hyperparameters(TRAIN_LOG_PATH, HYPERPARAMETERS)
 
     # Load the images and masks file names for training and validation
-    train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'train.txt', num_train_samples_per_dataset=10000)
-    validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_all_datasets(DATASETS_PATHS, 'val.txt', num_val_samples_per_dataset=1300)
+    train_images_paths, train_masks_paths, train_dataset_ids = load_split_data_multiple_datasets(DATASETS_PATHS, 'train.txt', num_train_samples_per_dataset=3000)
+    validation_images_paths, validation_masks_paths, validation_dataset_ids = load_split_data_multiple_datasets(DATASETS_PATHS, 'val.txt', num_val_samples_per_dataset=650)
     train_images_paths, train_masks_paths, train_dataset_ids = shuffle_data((train_images_paths, train_masks_paths, train_dataset_ids), SEED)
     #validation_images_paths, validation_masks_paths, validation_dataset_ids = shuffle_data((validation_images_paths, validation_masks_paths, validation_dataset_ids), SEED)
     dataset_log_text = f'Train set size: {len(train_images_paths)}\nValidation set size: {len(validation_images_paths)}\n'
@@ -143,13 +145,14 @@ if __name__ == '__main__':
     #validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
-    '''dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
-    dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)'''
-    dataset_specific_models = {dataset_id: Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
+    '''dataset_specific_models = {dataset_id: Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)'''
 
     # Create model, optimizer, scheduler, and criterion
-    model = TResUnetFusedModel(list(dataset_specific_models.values()), use_segformers=True).to(DEVICE)
+    #model = TResUnetFusedModel(list(dataset_specific_models.values()), use_segformers=True).to(DEVICE)
+    model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
     optimizer = create_optimizer(model, HYPERPARAMETERS['init_learning_rate'])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=HYPERPARAMETERS['scheduler_patience'])
     criterion = DiceBCELoss()

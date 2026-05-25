@@ -578,7 +578,7 @@ class TResUnetFusedModel(nn.Module):
             weights = self.compute_dataset_specific_weights(dataset_ids, weighting_mode, num_dataset_specific_models)
             weights = [weights[:, i].view(-1, 1, 1, 1) for i in range(weights.shape[1])]
 
-            # Concatenate the encoder outputs with cross-attention applied
+            # Concatenate the encoder outputs from all dataset specific models
             combined_s1 = torch.cat([weights[i] * all_features[i][0] for i in range(num_dataset_specific_models)], dim=1)
             combined_s2 = torch.cat([weights[i] * all_features[i][1] for i in range(num_dataset_specific_models)], dim=1)
             combined_s3 = torch.cat([weights[i] * all_features[i][2] for i in range(num_dataset_specific_models)], dim=1)
@@ -586,7 +586,7 @@ class TResUnetFusedModel(nn.Module):
             # Concatenate bottleneck features from all dataset specific models
             combined_bottleneck = torch.cat([weights[i] * all_features[i][3] for i in range(num_dataset_specific_models)], dim=1)
         else:
-            # Concatenate the encoder outputs with cross-attention applied
+            # Concatenate the encoder outputs from all dataset specific models
             combined_s1 = torch.cat([all_features[i][0] for i in range(num_dataset_specific_models)], dim=1)
             combined_s2 = torch.cat([all_features[i][1] for i in range(num_dataset_specific_models)], dim=1)
             combined_s3 = torch.cat([all_features[i][2] for i in range(num_dataset_specific_models)], dim=1)
