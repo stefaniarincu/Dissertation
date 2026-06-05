@@ -15,3 +15,19 @@ Test set size: 5735
 
 Test Loss: 0.2303 - Jaccard: 0.8712 - Dice (F1): 0.9017 - Recall: 0.9245 - Precision: 0.9393
 
+2026-06-03 15:33:04.177729
+isles dataset
+Test set size: 1569
+
+Test Loss: 0.3415 - Jaccard: 80.14 - Dice (F1): 83.26 - Recall: 83.72 - Precision: 95.30 - HD95: 12.59
+
+bmshare dataset
+Test set size: 1895
+
+Test Loss: 0.3926 - Jaccard: 82.15 - Dice (F1): 84.39 - Recall: 87.17 - Precision: 92.67 - HD95: 12.95
+
+brats dataset
+Test set size: 5735
+
+Test Loss: 0.2303 - Jaccard: 87.12 - Dice (F1): 90.17 - Recall: 92.45 - Precision: 93.93 - HD95: 7.39
+

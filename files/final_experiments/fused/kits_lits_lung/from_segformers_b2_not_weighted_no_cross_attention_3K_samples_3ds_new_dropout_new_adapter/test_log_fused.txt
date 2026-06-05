@@ -1,0 +1,33 @@
+
+2026-05-28 13:06:56.392160
+kits dataset
+Test set size: 2262
+
+Test Loss: 0.0671 - Jaccard: 0.8948 - Dice (F1): 0.9126 - Recall: 0.9250 - Precision: 0.9647
+
+lits dataset
+Test set size: 1774
+
+Test Loss: 0.0913 - Jaccard: 0.8448 - Dice (F1): 0.8808 - Recall: 0.8874 - Precision: 0.9441
+
+lung dataset
+Test set size: 720
+
+Test Loss: 0.1246 - Jaccard: 0.8876 - Dice (F1): 0.9124 - Recall: 0.9166 - Precision: 0.9631
+
+2026-06-03 16:24:57.434157
+kits dataset
+Test set size: 2262
+
+Test Loss: 0.0671 - Jaccard: 89.48 - Dice (F1): 91.26 - Recall: 92.50 - Precision: 96.47 - HD95: 6.77
+
+lits dataset
+Test set size: 1774
+
+Test Loss: 0.0913 - Jaccard: 84.48 - Dice (F1): 88.08 - Recall: 88.74 - Precision: 94.41 - HD95: 8.47
+
+lung dataset
+Test set size: 720
+
+Test Loss: 0.1246 - Jaccard: 88.76 - Dice (F1): 91.24 - Recall: 91.66 - Precision: 96.31 - HD95: 5.69
+

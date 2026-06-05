@@ -37,25 +37,28 @@ HYPERPARAMETERS = {
 
 
 # Dictionary that maps dataset names to an id
-IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+#IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+IDS_TO_DATASETS = {0: 'kits', 1: 'lits', 2: 'lung'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 EXPERIMENTS_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments'
 
 # Constants for dataset name and path
-DATASET_NAME = 'brats' # 'isles', 'bmshare', 'brats'
+DATASET_NAME = 'kits' # 'isles', 'bmshare', 'brats'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/segformers/b2'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/segformer/b2'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused_models/from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused/kits_lits_lung/from_segformers_b2_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/fused_model.pth'
+#FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused/not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_feat_teacher_to_student/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/kits_lits_lung/fused_from_segformers_b2_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/3_feat_student_to_teacher/{DATASET_NAME}'
+#MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/fused_from_segformers_b2_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout/3_feat_student_to_teacher_tres/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -64,13 +67,13 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
 
 # Feature adapter class to align Segformer to TresUnet
 # Adapt student features to teacher features
-"""class FeatureAdapter(nn.Module):
+class FeatureAdapter(nn.Module):
     def __init__(self, segformer_channels):
         super().__init__()
 
         s1, s2, s3, s4 = segformer_channels
 
-        self.s1_projection = nn.Sequential(
+        '''self.s1_projection = nn.Sequential(
             nn.Conv2d(s1, 64, kernel_size=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True)
@@ -86,7 +89,11 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
             nn.Conv2d(s3, 512, kernel_size=1),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True)
-        )
+        )'''
+        
+        self.s1_projection = nn.Conv2d(s1, 64, kernel_size=1)
+        self.s2_projection = nn.Conv2d(s2, 256, kernel_size=1)
+        self.s3_projection = nn.Conv2d(s3, 512, kernel_size=1)
 
         '''self.bottleneck_projection = nn.Sequential(
             nn.Conv2d(s4, 512, kernel_size=1),
@@ -110,16 +117,16 @@ TEST_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/test_log_{DATASET_NAME}.txt'
         s3 = self.s3_projection(f3)
         #bottleneck = self.bottleneck_projection(f4)
 
-        return [s1, s2, s3] #, bottleneck]"""
+        return [s1, s2, s3] #, bottleneck]
 
 # Adapt teacher features to student features
-class FeatureAdapter(nn.Module):
+"""class FeatureAdapter(nn.Module):
     def __init__(self, segformer_channels):
         super().__init__()
 
         s1, s2, s3, s4 = segformer_channels
 
-        self.s1_projection = nn.Sequential(
+        '''self.s1_projection = nn.Sequential(
             nn.Conv2d(64, s1, kernel_size=1),
             nn.BatchNorm2d(s1),
             nn.ReLU(inplace=True)
@@ -135,7 +142,11 @@ class FeatureAdapter(nn.Module):
             nn.Conv2d(512, s3, kernel_size=1),
             nn.BatchNorm2d(s3),
             nn.ReLU(inplace=True)
-        )
+        )'''
+
+        self.s1_projection = nn.Conv2d(64, s1, kernel_size=1)
+        self.s2_projection = nn.Conv2d(256, s2, kernel_size=1)
+        self.s3_projection = nn.Conv2d(512, s3, kernel_size=1)
 
         '''self.bottleneck_projection = nn.Sequential(
             nn.Conv2d(512, s4, kernel_size=1),
@@ -159,7 +170,7 @@ class FeatureAdapter(nn.Module):
         s3 = self.s3_projection(f3)
         #bottleneck = self.bottleneck_projection(f4)
 
-        return [s1, s2, s3] #, bottleneck]
+        return [s1, s2, s3] #, bottleneck]"""
 
 
 # Function that flattens features for contrastive loss
@@ -226,7 +237,7 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
             teacher_features = teacher_features[:3]
         
         with autocast('cuda'):
-            '''student_output, not_aligned_student_features = student_model(batched_images, return_features=True)
+            student_output, not_aligned_student_features = student_model(batched_images, return_features=True)
             not_aligned_student_features = not_aligned_student_features[:3]
 
             student_features = adapter(batched_images, not_aligned_student_features)
@@ -234,9 +245,9 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
             
             kd_contrastive_loss = contrastive_loss(student_features, teacher_features, temperature=temperature)
             feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features)
-            similarity_loss = cosine_similarity_loss(student_features, teacher_features)'''
+            similarity_loss = cosine_similarity_loss(student_features, teacher_features)
 
-            student_output, student_features = student_model(batched_images, return_features=True)
+            '''student_output, student_features = student_model(batched_images, return_features=True)
             student_features = student_features[:3]
 
             teacher_features_aligned = adapter(batched_images, teacher_features)
@@ -246,7 +257,7 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
 
             kd_contrastive_loss = contrastive_loss(student_features, teacher_features_aligned, temperature=temperature)
             feature_alignment_loss = compute_feature_alignment_loss(student_features, teacher_features_aligned)
-            similarity_loss = cosine_similarity_loss(student_features, teacher_features_aligned)
+            similarity_loss = cosine_similarity_loss(student_features, teacher_features_aligned)'''
 
             # Combine the segmentation loss and the feature alignment loss, perform backpropagation and update the model parameters
             total_loss = (alpha * segmentation_loss +

@@ -108,8 +108,9 @@ class UNet(nn.Module):
         s2 = self.down1(s1)
         s3 = self.down2(s2)
         s4 = self.down3(s3)
+        s5 = self.down4(s4)
 
-        return s2, s3, s4
+        return [s2, s3, s4, s5]
 
     def forward(self, x, return_features=False):
         x1 = self.inc(x)
@@ -124,5 +125,50 @@ class UNet(nn.Module):
         logits = self.outc(x)
 
         if return_features:
-            return logits, [x2, x3, x4]
+            return logits, [x2, x3, x4, x5]
         return logits
+
+
+''' ======================================== CREATE UNET FEATURE ADAPTER ======================================== '''
+
+# Feature adapter class for the UNet model
+class UNetFeatureAdapter(nn.Module):
+    def __init__(self):
+        super().__init__()
+        '''self.s1_projection = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+
+        self.s2_projection = nn.Sequential(
+            nn.Conv2d(256, 256, kernel_size=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True)
+        )
+
+        self.s3_projection = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True)
+        )
+
+        self.bottleneck_projection = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True)
+        )'''
+        self.s1_projection = nn.Conv2d(128, 64, kernel_size=1)
+        self.s2_projection = nn.Conv2d(256, 256, kernel_size=1)
+        self.s3_projection = nn.Conv2d(512, 512, kernel_size=1)
+        self.bottleneck_projection = nn.Conv2d(512, 512, kernel_size=1)
+    
+    def forward(self, x, unet_features):
+        unet_f1, unet_f2, unet_f3, unet_bottleneck = unet_features
+
+        s1 = self.s1_projection(unet_f1)
+        s2 = self.s2_projection(unet_f2)
+        s3 = self.s3_projection(unet_f3)
+        bottleneck = self.bottleneck_projection(unet_bottleneck)
+
+        return [s1, s2, s3, bottleneck]

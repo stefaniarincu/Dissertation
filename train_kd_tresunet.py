@@ -44,7 +44,7 @@ ROOT_PATH = '/root/Disertation'
 EXPERIMENTS_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments'
 
 # Constants for dataset name and path
-DATASET_NAME = 'lung' # 'isles', 'bmshare', 'brats', 'brats_ped', 'lits', 'kits', 'lung'
+DATASET_NAME = 'lits' # 'isles', 'bmshare', 'brats', 'brats_ped', 'lits', 'kits', 'lung'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
@@ -52,7 +52,7 @@ DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/f
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused_models/kits_lits_lung/from_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/fused_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused/kits_lits_lung/not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
 MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/kits_lits_lung/from_fused_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/{DATASET_NAME}'

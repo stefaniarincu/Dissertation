@@ -36,27 +36,28 @@ HYPERPARAMETERS = {
 
 
 # Dictionary that maps dataset names to an id
-#IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
-IDS_TO_DATASETS = {0: 'kits', 1: 'lits', 2: 'lung'}
+IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+#IDS_TO_DATASETS = {0: 'kits', 1: 'lits', 2: 'lung'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
 EXPERIMENTS_ROOT_PATH = f'{ROOT_PATH}/files/final_experiments'
 
 # Constants for dataset name and path
-DATASET_NAME = 'lung' # 'isles', 'bmshare', 'brats', 'brats_ped', 'lits', 'kits', 'lung'
+DATASET_NAME = 'brats' # 'isles', 'bmshare', 'brats', 'brats_ped', 'kits', 'lits', 'lung'
 DATASET_PATH = f'{ROOT_PATH}/datasets/{DATASET_NAME}'
 
 # Constant for dataset specific models checkpoint paths and a mapping from dataset names to paths
-#DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{ROOT_PATH}/files/dataset_specific/fract'
-DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/tresunet/'
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/unet/'
 DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for fused model checkpoint path
-FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused_models/kits_lits_lung/from_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/fused_model.pth'
+FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused/from_unets_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout_new_adapter/fused_model.pth'
+#FUSED_MODEL_CHECKPOINT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused/kits_lits_lung/from_unets_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout_new_adapter/fused_model.pth'
 
 # Constants for model checkpoint path and log paths for the model trained on a single dataset using knowledge distillation
-MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/kits_lits_lung/from_fused_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/unet/{DATASET_NAME}'
+MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/fused_from_unets_not_weighted_no_cross_attention_10K_samples_3ds_new_dropout_new_adapter/2/{DATASET_NAME}'
+#MODELS_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/kits_lits_lung/fused_from_unets_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout_new_adapter/{DATASET_NAME}'
 os.makedirs(MODELS_AND_LOG_ROOT_PATH, exist_ok=True)
 CHECKPOINT_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
 TRAIN_LOG_PATH = f'{MODELS_AND_LOG_ROOT_PATH}/train_log_{DATASET_NAME}.txt'
@@ -134,14 +135,15 @@ def train_step(teacher_model, student_model, dataloader, optimizer, dice_bce_cri
         # Pass the batch through the teacher model
         with autocast('cuda'), torch.no_grad():
             _, teacher_features = teacher_model(batched_images, dataset_ids=None, weighting_mode=None, return_features=False, return_features_unet=True)
-            teacher_features = [teacher_feature.detach() for teacher_feature in teacher_features]
-            #print(teacher_features[0].shape, teacher_features[1].shape, teacher_features[2].shape)
+            teacher_features = [teacher_feature.detach() for teacher_feature in teacher_features[:3]]
+            #print(teacher_features[0].shape, teacher_features[1].shape, teacher_features[2].shape, teacher_features[3].shape)
 
         with autocast('cuda'):
             aligned_teacher_features = adapter(teacher_features)
 
             student_output, student_features = student_model(batched_images, return_features=True)
-            #print(student_features[0].shape, student_features[1].shape, student_features[2].shape)
+            student_features = student_features[:3]
+            #print(student_features[0].shape, student_features[1].shape, student_features[2].shape, student_features[3].shape)
             segmentation_loss = dice_bce_criterion(student_output, batched_masks)
             
             kd_contrastive_loss = contrastive_loss(student_features, aligned_teacher_features, temperature=temperature)
@@ -221,11 +223,14 @@ if __name__ == '__main__':
     validation_dataloader = DataLoader(dataset=validation_dataset, batch_size=HYPERPARAMETERS['batch_size'], shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True)
 
     # Load dataset specific models checkpoints for each dataset
-    dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    '''dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)'''
+    dataset_specific_models = {dataset_id: UNet(3, 1, True).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
 
     # Load the fused model checkpoint and create the teacher model for knowledge distillation
-    teacher_model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
+    #teacher_model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
+    teacher_model = TResUnetFusedModel(list(dataset_specific_models.values()), use_unets=True).to(DEVICE)
     teacher_model.load_state_dict(torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False)
     '''incompatible = teacher_model.load_state_dict( torch.load(FUSED_MODEL_CHECKPOINT_PATH, map_location=DEVICE))#, strict=False )
     print(incompatible.missing_keys)

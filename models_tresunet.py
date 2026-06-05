@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 from torch.nn import functional as F
 from model_segformer import SegformerFeatureAdapter
+from model_unet import UNetFeatureAdapter
 
 
 ''' ============================================ ResNet BACKBONE ============================================ '''
@@ -487,12 +488,19 @@ class CrossAttentionBlock(nn.Module):
         return x1 + self.alpha * attn_output  # Learnable weight to adjust influence
 
 class TResUnetFusedModel(nn.Module):
-    def __init__(self, dataset_specific_models, use_segformers=False):
+    def __init__(self, dataset_specific_models, use_unets=False, use_segformers=False):
         super().__init__()
         num_dataset_specific_models = len(dataset_specific_models)
 
         # Use ModuleList to store the dataset specific models
         self.dataset_specific_models = nn.ModuleList(dataset_specific_models)
+
+        # Set flag if using UNets to add additional projection layers for feature alignment
+        self.use_unets = use_unets
+        if self.use_unets:
+            self.feature_adapters = nn.ModuleList([
+                UNetFeatureAdapter() for model in dataset_specific_models
+            ])
 
         # Set flag if using Segformers to add additional projection layers for feature alignment
         self.use_segformers = use_segformers
@@ -556,8 +564,9 @@ class TResUnetFusedModel(nn.Module):
         with torch.no_grad():
             # Encode features from each dataset specific model
             all_features = [model.encode(x) for model in self.dataset_specific_models]
+            #print(all_features[0][0].shape, all_features[0][1].shape, all_features[0][2].shape, all_features[0][3].shape)
 
-        if self.use_segformers:
+        if self.use_segformers or self.use_unets:
             all_features = [self.feature_adapters[i](x, all_features[i]) for i in range(num_dataset_specific_models)]
 
         # Cross-attention on encoder outputs
@@ -611,5 +620,5 @@ class TResUnetFusedModel(nn.Module):
         if return_features:
             return y, [conv_s1, conv_s2, conv_s3, conv_bottleneck]
         if return_features_unet:
-            return y, [conv_s1, conv_s2, conv_s3] #[combined_s1, combined_s2, combined_s3]
+            return y, [conv_s1, conv_s2, conv_s3, conv_bottleneck] #[combined_s1, combined_s2, combined_s3]
         return y

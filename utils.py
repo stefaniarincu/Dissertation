@@ -64,8 +64,12 @@ def log_results_train_val(log_path, epoch, train_loss, train_metrics, validation
     print_and_save(log_path, epoch_log_text)
 
 # Function that logs the test results to the log file in a readable format
-def log_results_test(log_path, test_loss, test_metrics):
-    test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n'
+def log_results_test(log_path, test_loss, test_metrics, test_mode=False):
+    if test_mode:
+        test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]*100.0:.2f} - Dice (F1): {test_metrics[1]*100.0:.2f} - Recall: {test_metrics[2]*100.0:.2f} - Precision: {test_metrics[3]*100.0:.2f} - HD95: {test_metrics[4]:.2f}\n'
+        #test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f} - HD95: {test_metrics[4]:.4f}\n'
+    else:
+        test_log_text = f'Test Loss: {test_loss:.4f} - Jaccard: {test_metrics[0]:.4f} - Dice (F1): {test_metrics[1]:.4f} - Recall: {test_metrics[2]:.4f} - Precision: {test_metrics[3]:.4f}\n'
     print_and_save(log_path, test_log_text)
 
 

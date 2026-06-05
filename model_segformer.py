@@ -66,7 +66,7 @@ class SegformerFeatureAdapter(nn.Module):
 
         s1, s2, s3, s4 = segformer_channels
 
-        self.s1_projection = nn.Sequential(
+        '''self.s1_projection = nn.Sequential(
             nn.Conv2d(s1, 64, kernel_size=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True)
@@ -88,7 +88,12 @@ class SegformerFeatureAdapter(nn.Module):
             nn.Conv2d(s4, 512, kernel_size=1),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True)
-        )
+        )'''
+
+        self.s1_projection = nn.Conv2d(s1, 64, kernel_size=1)
+        self.s2_projection = nn.Conv2d(s2, 256, kernel_size=1)
+        self.s3_projection = nn.Conv2d(s3, 512, kernel_size=1)
+        self.bottleneck_projection = nn.Conv2d(s4, 512, kernel_size=1)
     
     def forward(self, x, segformer_features):
         segformer_f1, segformer_f2, segformer_f3, segformer_bottleneck = segformer_features
