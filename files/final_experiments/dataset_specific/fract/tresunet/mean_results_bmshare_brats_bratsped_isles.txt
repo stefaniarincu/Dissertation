@@ -1,1 +1,1 @@
-Dice: 84.60 - Jaccard: 87.49 - Recall: 89.39 - Precision: 94.03 - HD95: 9.28
+Jaccard: 84.60 - Dice: 87.49 - Recall: 89.39 - Precision: 94.03 - HD95: 9.28

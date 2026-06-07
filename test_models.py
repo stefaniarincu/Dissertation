@@ -22,9 +22,9 @@ HYPERPARAMETERS = {
 
 #IDS_TO_DATASETS = {0: 'bmshare', 1: 'brats', 2: 'brats_ped', 3: 'isles'}
 #IDS_TO_DATASETS = {0: 'bmshare', 1: 'brats', 2: 'isles'}
-#IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
+IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats'}
 #IDS_TO_DATASETS = {0: 'isles', 1: 'bmshare', 2: 'brats', 3: 'brats_ped'}
-IDS_TO_DATASETS = {0: 'kits', 1: 'lits', 2: 'lung'}
+#IDS_TO_DATASETS = {0: 'kits', 1: 'lits', 2: 'lung'}
 
 # Constant for the root path for all necessary files
 ROOT_PATH = '/root/Disertation'
@@ -35,18 +35,17 @@ DATASETS_ROOT_PATH = f'{ROOT_PATH}/datasets'
 DATASETS_PATHS = {dataset_id: os.path.join(DATASETS_ROOT_PATH, dataset_name) for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
 
 # Constant for model checkpoint path and log path
-#MODELS_AND_LOGS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/segformer/b2'
-MODELS_AND_LOGS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/kits_lits_lung/fused_from_segformers_b2_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/3_feat_student_to_teacher'
-
-"""DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/segformer/b2/'
-DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
-MODEL_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused/kits_lits_lung/from_segformers_b2_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout_new_adapter'
-CHECKPOINT_PATH = f'{MODEL_AND_LOG_ROOT_PATH}/fused_model.pth'
-#MODEL_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/kits_lits_lung/from_fused_not_weighted_no_cross_attention_3K_samples_3ds_new_dropout/{DATASET_NAME}'
-#CHECKPOINT_PATH = f'{MODEL_AND_LOG_ROOT_PATH}/distilled_model_{DATASET_NAME}.pth'
-TEST_LOG_PATH = f'{MODEL_AND_LOG_ROOT_PATH}/test_log_fused.txt'"""
+#MODELS_AND_LOGS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/knowledge_distillation/from_fused_not_weighted_cross_attention_all_samples_3ds_new_dropout'
 #LOG = f'{MODELS_AND_LOGS_ROOT_PATH}/mean_results_bmshare_brats_isles.txt'
-LOG = f'{MODELS_AND_LOGS_ROOT_PATH}/mean_results_kits_lits_lung.txt'
+#LOG = f'{MODEL_AND_LOG_ROOT_PATH}/mean_results_kits_lits_lung.txt'
+
+DATASET_SPECIFIC_MODELS_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/dataset_specific/fract/tresunet/'
+DATASET_SPECIFIC_MODELS_CHECKPOINTS = {dataset_id: os.path.join(DATASET_SPECIFIC_MODELS_ROOT_PATH, dataset_name, f'dataset_specific_model_{dataset_name}.pth') for dataset_id, dataset_name in IDS_TO_DATASETS.items()}
+MODEL_AND_LOG_ROOT_PATH = f'{EXPERIMENTS_ROOT_PATH}/fused/not_weighted_cross_attention_all_samples_3ds_new_dropout'
+CHECKPOINT_PATH = f'{MODEL_AND_LOG_ROOT_PATH}/fused_model.pth'
+TEST_LOG_PATH = f'{MODEL_AND_LOG_ROOT_PATH}/test_log_fused.txt'
+LOG = f'{MODEL_AND_LOG_ROOT_PATH}/mean_results_bmshare_brats_isles.txt'
+#LOG = f'{MODEL_AND_LOG_ROOT_PATH}/mean_results_kits_lits_lung.txt'
 
 
 def evaluate_step(model, dataloader, criterion, device):
@@ -71,13 +70,13 @@ def evaluate_step(model, dataloader, criterion, device):
     return compute_final_results(epoch_loss, results, len(dataloader.dataset), test_mode=True)
 
 
-if __name__ == '__main__':
+"""if __name__ == '__main__':
     seed_all(SEED)
 
     # Create model, optimizer, scheduler and criterion
-    #model = TResUnet().to(DEVICE)
+    model = TResUnet().to(DEVICE)
     #model = UNet(3, 1, True).to(DEVICE)
-    model = Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name']).to(DEVICE)
+    #model = Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name']).to(DEVICE)
     criterion = DiceBCELoss()
     
     results = {'dice': 0.0, 'jaccard': 0.0, 'recall': 0.0, 'precision': 0.0, 'hd95': 0.0}
@@ -123,19 +122,19 @@ if __name__ == '__main__':
     with open(LOG, 'w') as f:
         f.write(f'Dice: {results["dice"]:.2f} - Jaccard: {results["jaccard"]:.2f} - Recall: {results["recall"]:.2f} - Precision: {results["precision"]:.2f} - HD95: {results["hd95"]:.2f}')
 
-    print(results_formatted)
+    print(results_formatted)"""
 
-"""if __name__ == '__main__':
+if __name__ == '__main__':
     seed_all(SEED)
     create_log_file(TEST_LOG_PATH)
 
-    #dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    dataset_specific_models = {dataset_id: TResUnet().to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     #dataset_specific_models = {dataset_id: UNet(3, 1, True).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
-    dataset_specific_models = {dataset_id: Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
+    #dataset_specific_models = {dataset_id: Segformer.load_from_pretrained(HYPERPARAMETERS['segformer_model_name'], num_labels=1).to(DEVICE) for dataset_id in IDS_TO_DATASETS.keys()}
     dataset_specific_models = load_dataset_specific_models(DATASET_SPECIFIC_MODELS_CHECKPOINTS, dataset_specific_models, DEVICE)
-    #model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
+    model = TResUnetFusedModel(list(dataset_specific_models.values())).to(DEVICE)
     #model = TResUnetFusedModel(list(dataset_specific_models.values()), use_unets=True).to(DEVICE)
-    model = TResUnetFusedModel(list(dataset_specific_models.values()), use_segformers=True).to(DEVICE)
+    #model = TResUnetFusedModel(list(dataset_specific_models.values()), use_segformers=True).to(DEVICE)
     model.load_state_dict(torch.load(CHECKPOINT_PATH, map_location=DEVICE))
     model = freeze_model_parameters(model)
 
@@ -180,12 +179,12 @@ if __name__ == '__main__':
         f.write(f'Dice: {results["dice"]:.2f} - Jaccard: {results["jaccard"]:.2f} - Recall: {results["recall"]:.2f} - Precision: {results["precision"]:.2f} - HD95: {results["hd95"]:.2f}')
 
     results_formatted = 'fused teacher'
-    '''results_formatted += f' & {results_as_dict[1][0]*100.0:.2f} & {results_as_dict[1][1]*100.0:.2f} & {results_as_dict[1][2]*100.0:.2f} & {results_as_dict[1][3]*100.0:.2f} & {results_as_dict[1][4]:.2f}'
+    results_formatted += f' & {results_as_dict[1][0]*100.0:.2f} & {results_as_dict[1][1]*100.0:.2f} & {results_as_dict[1][2]*100.0:.2f} & {results_as_dict[1][3]*100.0:.2f} & {results_as_dict[1][4]:.2f}'
     results_formatted += f' & {results_as_dict[2][0]*100.0:.2f} & {results_as_dict[2][1]*100.0:.2f} & {results_as_dict[2][2]*100.0:.2f} & {results_as_dict[2][3]*100.0:.2f} & {results_as_dict[2][4]:.2f}'
     #results_formatted += f' & {results_as_dict[3][0]*100.0:.2f} & {results_as_dict[3][1]*100.0:.2f} & {results_as_dict[3][2]*100.0:.2f} & {results_as_dict[3][3]*100.0:.2f} & {results_as_dict[3][4]:.2f}'
     results_formatted += f' & {results_as_dict[0][0]*100.0:.2f} & {results_as_dict[0][1]*100.0:.2f} & {results_as_dict[0][2]*100.0:.2f} & {results_as_dict[0][3]*100.0:.2f} & {results_as_dict[0][4]:.2f}'
-    print(results_formatted)'''
-    results_formatted += f' & {results_as_dict[0][0]*100.0:.2f} & {results_as_dict[0][1]*100.0:.2f} & {results_as_dict[0][2]*100.0:.2f} & {results_as_dict[0][3]*100.0:.2f} & {results_as_dict[0][4]:.2f}'
+    print(results_formatted)
+    '''results_formatted += f' & {results_as_dict[0][0]*100.0:.2f} & {results_as_dict[0][1]*100.0:.2f} & {results_as_dict[0][2]*100.0:.2f} & {results_as_dict[0][3]*100.0:.2f} & {results_as_dict[0][4]:.2f}'
     results_formatted += f' & {results_as_dict[1][0]*100.0:.2f} & {results_as_dict[1][1]*100.0:.2f} & {results_as_dict[1][2]*100.0:.2f} & {results_as_dict[1][3]*100.0:.2f} & {results_as_dict[1][4]:.2f}'
     results_formatted += f' & {results_as_dict[2][0]*100.0:.2f} & {results_as_dict[2][1]*100.0:.2f} & {results_as_dict[2][2]*100.0:.2f} & {results_as_dict[2][3]*100.0:.2f} & {results_as_dict[2][4]:.2f}'
-    print(results_formatted)"""
+    print(results_formatted)'''
