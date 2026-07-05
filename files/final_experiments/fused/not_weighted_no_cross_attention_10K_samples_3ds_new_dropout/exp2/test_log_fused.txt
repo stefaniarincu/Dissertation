@@ -1,0 +1,33 @@
+
+2026-06-26 02:21:23.462367
+isles dataset
+Test set size: 1569
+
+Test Loss: 0.3383 - Jaccard: 0.7984 - Dice (F1): 0.8320 - Recall: 0.8349 - Precision: 0.9544
+
+bmshare dataset
+Test set size: 1895
+
+Test Loss: 0.4175 - Jaccard: 0.8258 - Dice (F1): 0.8459 - Recall: 0.8589 - Precision: 0.9493
+
+brats dataset
+Test set size: 5735
+
+Test Loss: 0.2181 - Jaccard: 0.8645 - Dice (F1): 0.8948 - Recall: 0.9284 - Precision: 0.9278
+
+2026-07-05 08:49:37.685155
+isles dataset
+Test set size: 1569
+
+Test Loss: 0.3383 - Jaccard: 79.84 - Dice (F1): 83.20 - Recall: 83.49 - Precision: 95.44 - HD95: 12.15
+
+bmshare dataset
+Test set size: 1895
+
+Test Loss: 0.4175 - Jaccard: 82.58 - Dice (F1): 84.59 - Recall: 85.89 - Precision: 94.93 - HD95: 13.44
+
+brats dataset
+Test set size: 5735
+
+Test Loss: 0.2181 - Jaccard: 86.45 - Dice (F1): 89.48 - Recall: 92.84 - Precision: 92.78 - HD95: 8.09
+
