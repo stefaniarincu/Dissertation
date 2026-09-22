@@ -50,3 +50,16 @@ datasets/
 - **test.txt**: lists the filenames of the test samples.
 
 The framework uses balanced sampling during fused-teacher training to ensure equal representation of the different datasets.
+
+## Repository Structure
+- `data.py`: dataset loading and preprocessing, data augmentation, train/validation/test split handling and balanced batch sampling
+- `metrics.py`: Dice and Binary Cross-Entropy (BCE) segmentation loss, computation of evaluation metrics (IoU, Dice, Recall, Precision and HD95) and aggregation of results
+- `utils.py`: reproducibility utilities, training and evaluation logging, model checkpoint saving and loading and initialization and freezing of models
+- `model_unet.py`: U-Net architecture and feature adapter
+- `model_segformer.py`: SegFormer architecture and feature adapter
+- `model_tresunet.py`: TransResU-Net and fused teacher architectures
+- `train_dataset_specific.py`: training and evaluation of individual teacher models
+- `train_fused.py`: training and evaluation of the fused teacher
+- `train_kd_tresunet.py`: training and evaluation of TransResU-Net students using knowledge distillation
+- `train_kd_unet.py`: training and evaluation of U-Net students using knowledge distillation
+- `train_kd_segformer.py`: training and evaluation of SegFormer students using knowledge distillation
