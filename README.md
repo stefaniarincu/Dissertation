@@ -11,7 +11,9 @@ The proposed framework consists of three training stages:
 2. **Fused Teacher Training**: the dataset-specific teachers are frozen and their intermediate representations are co bined through multi-level feature fusion to train a fused teacher
 3. **Knowledge Distillation**: the fused teacher transfers knowledge to dataset-specific student models through a combination of segmentation supervision and feature-level distillation losses.
 
-![Framework overview](images/framework_overview.png)
+<p align="center">
+  <img src="images/framework_overview.png" alt="Framework overview" width="500">
+</p>
 
 ## Datasets
 The framework is evaluated on seven medical imaging datasets. All experiments use 2D image slices.
